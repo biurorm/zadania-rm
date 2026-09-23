@@ -1275,8 +1275,13 @@ function podsumowanieDnia(d, osobaId) {
   const dodatkowe = robocze().filter((z) => z.status === 'zrobione' && tsDzien(z.zrobione_kiedy) === d && z.termin !== d && (!osobaId || z.zrobione_przez === osobaId || z.przypisany === osobaId));
   return { plan: plan.length, zrobionePlan: zrobionePlan.length, niezrobione, dodatkowe, procent: plan.length ? Math.round((zrobionePlan.length / plan.length) * 100) : 0 };
 }
+// dni bez zadań nie wchodzą do wyniku (liczymy sumę zadań, nie średnią dni);
+// w okresach dłuższych niż dziś dzisiejsze nieodhaczone zadanie liczy się dopiero po końcu dnia
 function wynikOkresu(od, doD, osobaId) {
-  const plan = robocze().filter((z) => z.termin && z.termin >= od && z.termin <= doD && (!osobaId || z.przypisany === osobaId));
+  const t = dzis();
+  const tylkoDzis = od === t && doD === t;
+  const plan = robocze().filter((z) => z.termin && z.termin >= od && z.termin <= doD && (!osobaId || z.przypisany === osobaId)
+    && (tylkoDzis || z.termin < t || z.status === 'zrobione'));
   const zr = plan.filter((z) => z.status === 'zrobione').length;
   return { plan: plan.length, zrobione: zr, procent: plan.length ? Math.round((zr / plan.length) * 100) : null };
 }
@@ -1321,7 +1326,7 @@ function htmlWyniki() {
         <span class="wynik-kto">${nazwa}</span>${okresy.map(([, od, doD]) => { const w = wynikOkresu(od, doD, id); return `<span class="wynik-pct">${kom(w)}${pasek(w)}</span>`; }).join('')}</button>`;
     }).join('')}
     </div>
-    <p class="hint">Procent = zrobione z zaplanowanych do dziś (zadania z przyszłych dni nie zaniżają wyniku). Kliknij wiersz, żeby zobaczyć podsumowanie dnia tej osoby.</p></div>`;
+    <p class="hint">Procent = zrobione z zaplanowanych. Dni bez zadań się nie liczą (–), przyszłe dni też nie, a dzisiejsze zadania wchodzą do dłuższych okresów po odhaczeniu albo po końcu dnia. Kliknij wiersz, żeby zobaczyć podsumowanie dnia tej osoby.</p></div>`;
 }
 function pokazPodsumowanie(d, osobaId) {
   // konkretna osoba z panelu; bez wskazania: menedżer widzi zespół, reszta siebie
