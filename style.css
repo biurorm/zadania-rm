@@ -477,3 +477,38 @@ button.group-title.zwin {
 button.group-title.zwin:hover { color: var(--brand); }
 .grupa.zwinieta button.group-title.zwin { border-bottom: 1px dashed var(--border); }
 .strzalka { display: inline-block; width: 14px; font-size: 13px; }
+
+.list-card { cursor: pointer; }
+.list-card .drag { margin: -8px 0 -8px -4px; }
+.list-card.dragging { position: relative; z-index: 30; box-shadow: 0 10px 24px rgba(0,0,0,.18); }
+
+/* kredyty: do uzupełnienia */
+.brak { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 15px; }
+.brak:last-child { border-bottom: 0; }
+.brak .etap-box { background: #fff; border-color: #fca5a5; cursor: pointer; }
+.brak.on .etap-box { background: var(--success); border-color: var(--success); color: #fff; }
+.brak.on .etap-txt { color: var(--muted); text-decoration: line-through; }
+.brak .etap-txt { flex: 1; }
+.brak .etap-txt small { text-decoration: none; display: block; }
+.mini-x { border: 0; background: none; color: var(--muted); font-size: 16px; padding: 4px 8px; cursor: pointer; }
+#k-braki-dodaj { margin-top: 10px; }
+.person-nums { grid-template-columns: repeat(6, 1fr); }
+
+/* panel: wykonanie planu per osoba */
+.wynik-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 96px 96px; gap: 10px; align-items: center; width: 100%;
+  padding: 8px 4px; border: 0; border-bottom: 1px solid var(--border); background: none; text-align: left;
+  font-family: inherit; font-size: 14px; color: var(--text); cursor: pointer;
+}
+.wynik-row:hover { background: var(--brand-soft); }
+.wynik-row.head { cursor: default; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); padding-top: 0; }
+.wynik-row.head:hover { background: none; }
+.wynik-row.razem { background: #fafaf9; }
+.wynik-kto { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wynik-kto small { color: var(--muted); }
+.wynik-pct { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.wynik-pct b { font-size: 17px; }
+.wynik-pct b.muted { color: var(--muted); }
+.wynik-pct small { color: var(--muted); font-size: 11px; }
+.mini-bar { flex-basis: 100%; height: 4px; background: #e7e5e4; border-radius: 3px; overflow: hidden; }
+.mini-bar i { display: block; height: 100%; background: var(--success); }

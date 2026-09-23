@@ -9,6 +9,8 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&':
 const TYPY = [
   { k: 'zadanie', n: 'Zadanie', i: '✅', min: 30 },
   { k: 'telefon', n: 'Telefon', i: '📞', min: 15 },
+  { k: 'mail', n: 'Mail', i: '✉️', min: 15 },
+  { k: 'teren', n: 'Teren', i: '🚗', min: 120 },
   { k: 'prezentacja', n: 'Prezentacja', i: '🏠', min: 60 },
   { k: 'spotkanie', n: 'Spotkanie', i: '🤝', min: 60 },
   { k: 'dokumenty', n: 'Dokumenty', i: '📄', min: 30 }
@@ -432,18 +434,21 @@ function sortuj(a, b) {
 }
 const poPriorytecie = (a, b) => (a.priorytet || 3) - (b.priorytet || 3) || sortuj(a, b);
 function grupuj(lista) {
-  const t = dzis(), jutro = plusDni(t, 1), tydzien = plusDni(t, 7);
-  const g = { 'Zaległe': [], 'Dziś': [], 'Jutro': [], 'Najbliższe 7 dni': [], 'Później': [], 'Bez terminu': [] };
+  // Zaległe, Dziś, Jutro, potem każdy kolejny dzień osobno z pełną datą; grupy liczą się od dzisiejszej daty,
+  // więc zadanie na 1 października samo wskoczy do "Jutro", a potem do "Dziś"
+  const t = dzis(), jutro = plusDni(t, 1);
+  const g = { 'Zaległe': [], 'Dziś': [], 'Jutro': [] };
+  const bez = [];
   lista.slice().sort(sortuj).forEach((z) => {
-    if (!z.termin) g['Bez terminu'].push(z);
+    if (!z.termin) bez.push(z);
     else if (z.termin < t) g['Zaległe'].push(z);
     else if (z.termin === t) g['Dziś'].push(z);
     else if (z.termin === jutro) g['Jutro'].push(z);
-    else if (z.termin <= tydzien) g['Najbliższe 7 dni'].push(z);
-    else g['Później'].push(z);
+    else { const n = naglowekDnia(z.termin); (g[n] = g[n] || []).push(z); }
   });
+  g['Bez terminu'] = bez;
   // w dniu najważniejsze na górze
-  ['Zaległe', 'Dziś', 'Jutro', 'Bez terminu'].forEach((k) => g[k].sort(poPriorytecie));
+  Object.keys(g).forEach((k) => g[k].sort(poPriorytecie));
   return g;
 }
 function karta(z, opcje = {}) {
@@ -502,21 +507,24 @@ function renderGrupy(zadania, pusto) {
   const g = grupuj(reszta);
   let html = Object.entries(g).filter(([, l]) => l.length)
     .map(([n, l]) => grupaHtml(S.widok + ':' + n, n, l, { alert: n === 'Zaległe' })).join('');
-  html += S.listy.filter((l) => naListach[l.id]).map((l) =>
+  html += S.listy.filter((l) => naListach[l.id]).sort((a, b) => kluczListy(a) - kluczListy(b)).map((l) =>
     grupaHtml(S.widok + ':lista:' + l.id, `${esc(l.ikona)} ${esc(l.nazwa)}`,
-      naListach[l.id].sort((a, b) => klucz(a) - klucz(b)), { domyslnieZwinieta: true, karta: { bezListy: true } })).join('');
+      naListach[l.id].sort((a, b) => klucz(a) - klucz(b)), { domyslnieZwinieta: true, karta: { bezListy: true, uchwyt: true } })).join('');
   return html || `<div class="empty">${pusto}</div>`;
 }
 function statsHtml(pola) {
   return pola.map(([n, l, alert]) => `<div class="stat${alert && n ? ' alert' : ''}"><b>${n}</b><span>${l}</span></div>`).join('');
 }
+// pozycja listy bez terminu (np. opłaty, filmy do nagrania) nie jest "otwartym zadaniem" w licznikach
+const naLiscieBezTerminu = (z) => !!(z.lista_id && !z.termin);
 function renderStats(lista) {
   const t = dzis();
   const otwarte = lista.filter((z) => z.status !== 'zrobione');
   $('#stats').innerHTML = statsHtml([
     [otwarte.filter((z) => z.termin && z.termin < t).length, 'zaległe', true],
-    [otwarte.filter((z) => (z.priorytet || 3) === 1).length, 'pilne', true],
+    [otwarte.filter((z) => (z.priorytet || 3) === 1 && !naLiscieBezTerminu(z)).length, 'pilne', true],
     [otwarte.filter((z) => z.termin === t).length, 'na dziś'],
+    [otwarte.filter((z) => z.termin === plusDni(t, 1)).length, 'jutro'],
     [lista.filter((z) => z.status === 'zrobione' && tsDzien(z.zrobione_kiedy) === t).length, '✓ dziś']
   ]);
 }
@@ -533,7 +541,13 @@ function renderZakladki() {
   $('#tabs').innerHTML = lista.map((w) => `<button class="tab${S.widok === w ? ' on' : ''}" data-view="${w}">${WIDOKI[w]}</button>`).join('');
 }
 
+let przeciaganieWidoku = false;
 function renderMain() {
+  if ($('#view').classList.contains('przeciagam')) return; // nie przerywamy przeciągania odświeżeniem
+  if (!przeciaganieWidoku) {
+    przeciaganieWidoku = true;
+    wlaczPrzeciaganie($('#view'), (id, prevId, nextId) => (lista(id) ? zapiszKolejnoscListy(id, prevId, nextId) : zapiszKolejnoscZadania(id, prevId, nextId)));
+  }
   renderZakladki();
   document.body.classList.toggle('widok-kalendarz', S.widok === 'kalendarz');
   renderFiltrOsob();
@@ -580,13 +594,15 @@ function htmlPanel() {
   const tydzienTemu = plusDni(t, -6);
   const otwarte = robocze().filter((z) => z.status !== 'zrobione');
   const zalegle = otwarte.filter((z) => z.termin && z.termin < t);
-  const pilne = otwarte.filter((z) => (z.priorytet || 3) === 1 && !(z.termin && z.termin < t));
+  const pilne = otwarte.filter((z) => (z.priorytet || 3) === 1 && !(z.termin && z.termin < t) && !naLiscieBezTerminu(z));
+  const jutro = plusDni(t, 1);
   const zrob7 = robocze().filter((z) => z.status === 'zrobione' && tsDzien(z.zrobione_kiedy) >= tydzienTemu);
   const kWToku = S.kredyty.filter((k) => k.status === 'w_toku');
   $('#stats').innerHTML = statsHtml([
     [zalegle.length, 'zaległe w zespole', true],
     [pilne.length, 'pilne otwarte', true],
     [otwarte.filter((z) => z.termin === t).length, 'na dziś'],
+    [otwarte.filter((z) => z.termin === jutro).length, 'jutro'],
     [zrob7.length, 'zrobione w 7 dni']
   ]);
 
@@ -594,7 +610,9 @@ function htmlPanel() {
     const moje = otwarte.filter((z) => z.przypisany === p.id);
     const zal = moje.filter((z) => z.termin && z.termin < t).length;
     const dz = moje.filter((z) => z.termin === t).length;
-    const wt = moje.filter((z) => z.status === 'w_toku').length;
+    const ju = moje.filter((z) => z.termin === jutro).length;
+    const zad = moje.filter((z) => !naLiscieBezTerminu(z)).length;
+    const lis = moje.filter(naLiscieBezTerminu).length;
     const zr = zrob7.filter((z) => z.zrobione_przez === p.id).length;
     const kr = p.rola === 'doradca' ? kWToku.filter((k) => k.doradca === p.id).length : null;
     return `<button class="person${zal ? ' alarm' : ''}" data-panel-osoba="${esc(p.id)}">
@@ -602,8 +620,9 @@ function htmlPanel() {
       <div class="person-nums">
         <span><b class="${zal ? 'red' : ''}">${zal}</b>zaległe</span>
         <span><b>${dz}</b>na dziś</span>
-        <span><b>${moje.length}</b>otwarte</span>
-        <span><b>${kr != null ? kr : wt}</b>${kr != null ? 'kredyty' : 'w toku'}</span>
+        <span><b>${ju}</b>jutro</span>
+        <span><b>${zad}</b>zadania</span>
+        <span><b>${kr != null ? kr : lis}</b>${kr != null ? 'kredyty' : 'na listach'}</span>
         <span><b class="green">${zr}</b>zrobione 7 dni</span>
       </div>
     </button>`;
@@ -614,7 +633,7 @@ function htmlPanel() {
 
   const dzisW = podsumowanieDnia(t, null);
   return `
-    <button class="summary-strip" data-podsum="${t}">📊 Dziś zespół: ${dzisW.zrobionePlan}/${dzisW.plan} zaplanowanych (${dzisW.procent}%) · pełne podsumowanie</button>
+    ${htmlWyniki()}
     <div class="group-title">Zespół · kliknij osobę, żeby zobaczyć jej zadania</div>
     <div class="people">${kartyOsob || '<div class="empty">Brak osób w zespole.</div>'}</div>
     <button class="link-btn" data-idz="settings">Zarządzaj zespołem: role, usuwanie osób</button>
@@ -623,6 +642,13 @@ function htmlPanel() {
     <div class="group-title">Kredyty w toku · ${kWToku.length}</div>
     <div class="card">${etapyLicz.length ? etapyLicz.map((x) => `<div class="kr-row"><span>czeka na: ${esc(x.e.n)}</span><b>${x.n}</b></div>`).join('') : '<span class="hint">Brak kredytów w toku.</span>'}
       <button class="link-btn" data-widok="kredyty">Otwórz kredyty</button></div>
+    ${S.kredyty.length ? `<div class="group-title">Ostatnie zmiany w kredytach</div>${S.kredyty.slice().sort((a, b) => (b.zmieniono || '').localeCompare(a.zmieniono || '')).slice(0, 5).map((k) => {
+      const br = (k.braki || []).filter((x) => !x.zrobione).length;
+      const nast = nastepnyEtap(k);
+      return `<div class="task kredyt" data-kredyt="${esc(k.id)}"><div class="task-body"><div class="task-title">🏦 ${esc(k.klient)}</div>
+        <div class="task-meta"><span>${etapyZrobione(k)}/${ETAPY.length}${k.status === 'w_toku' && nast ? ', następny: ' + esc(nast.n) : ', ' + esc(K_STATUSY[k.status])}</span>${br ? `<span class="tag p1">do uzupełnienia: ${br}</span>` : ''}</div>
+        <div class="task-meta"><span>${esc(k.zmienil ? osoba(k.zmienil).imie : osoba(k.utworzyl).imie)}, ${esc(kiedyTs(k.zmieniono))}</span></div></div>${k.doradca ? avatar(k.doradca) : ''}</div>`;
+    }).join('')}` : ''}
     ${ostatnie.length ? `<div class="group-title">Ostatnio zrobione</div>${ostatnie.map((z) => karta(z, { zrobione: true })).join('')}` : ''}`;
 }
 
@@ -635,12 +661,14 @@ function htmlKredyty() {
   const filtr = Object.entries(K_STATUSY).map(([k, n]) => `<button class="chip${S.filtrKredyt === k ? ' on' : ''}" data-kfiltr="${k}">${n} · ${ile(k)}</button>`).join('');
   const karty = lista.map((k) => {
     const n = etapyZrobione(k), nast = nastepnyEtap(k);
+    const braki = (k.braki || []).filter((b) => !b.zrobione).length;
     return `<div class="task kredyt" data-kredyt="${esc(k.id)}">
       <div class="task-body">
         <div class="task-title">🏦 ${esc(k.klient)}</div>
         <div class="task-meta">${k.bank ? `<span>${esc(k.bank)}</span>` : ''}${k.oferta ? `<span class="tag">${esc(k.oferta)}</span>` : ''}</div>
         <div class="bar"><i style="width:${Math.round((n / ETAPY.length) * 100)}%"></i></div>
-        <div class="task-meta"><span>${n}/${ETAPY.length}</span><span>${k.status === 'w_toku' && nast ? 'następny: ' + esc(nast.n) : esc(K_STATUSY[k.status])}</span></div>
+        <div class="task-meta"><span>${n}/${ETAPY.length}</span><span>${k.status === 'w_toku' && nast ? 'następny: ' + esc(nast.n) : esc(K_STATUSY[k.status])}</span>${braki ? `<span class="tag p1">do uzupełnienia: ${braki}</span>` : ''}</div>
+        ${k.zmienil ? `<div class="task-meta"><span>zmiana: ${esc(osoba(k.zmienil).imie)}, ${esc(kiedyTs(k.zmieniono))}</span></div>` : ''}
       </div>
       ${k.doradca ? avatar(k.doradca) : ''}
     </div>`;
@@ -652,7 +680,7 @@ function otworzKredyt(k) {
   S.kredyt = k || null;
   const doradcy = aktywni().filter((p) => p.rola === 'doradca');
   S.kForm = k ? JSON.parse(JSON.stringify(k)) : {
-    klient: '', oferta: '', bank: '', notatka: '', etapy: {}, status: 'w_toku',
+    klient: '', oferta: '', bank: '', notatka: '', etapy: {}, braki: [], status: 'w_toku',
     doradca: mojaRola() === 'doradca' ? S.me.id : (doradcy[0] ? doradcy[0].id : null)
   };
   $('#k-tytul').textContent = k ? 'Klient kredytowy' : 'Nowy klient kredytowy';
@@ -684,6 +712,16 @@ function rysujKredyt() {
       <span class="etap-txt">${esc(e.n)}${w ? `<small>${esc(osoba(w.kto).imie)}, ${esc(kiedyTs(w.kiedy))}</small>` : ''}</span>
     </button>`;
   }).join('');
+  // do uzupełnienia: dopisuje menedżer albo doradca, odhacza doradca (lub menedżer)
+  const braki = f.braki || [];
+  const otwBraki = braki.filter((b) => !b.zrobione).length;
+  $('#k-braki-licznik').textContent = braki.length ? `${otwBraki} z ${braki.length} brakuje` : '';
+  $('#k-braki').innerHTML = braki.map((b) => `<div class="brak${b.zrobione ? ' on' : ''}">
+      <button type="button" class="etap-box" data-brak="${esc(b.id)}" ${mozeOdhaczac ? '' : 'disabled'}>${b.zrobione ? '✓' : ''}</button>
+      <span class="etap-txt">${esc(b.tekst)}<small>${b.zrobione ? `dostarczone: ${esc(osoba(b.kto_zrobil).imie)}, ${esc(kiedyTs(b.kiedy_zrobione))}` : `dopisał(a): ${esc(osoba(b.kto).imie)}, ${esc(kiedyTs(b.kiedy))}`}</small></span>
+      ${mozeOdhaczac ? `<button type="button" class="mini-x" data-brak-usun="${esc(b.id)}" aria-label="Usuń">✕</button>` : ''}
+    </div>`).join('') || '<p class="hint">Brak braków. Dopisz, czego doradca potrzebuje od klienta, np. zaświadczenie o zarobkach, wyciąg z konta, operat.</p>';
+  $('#k-braki-dodaj').style.display = mozeOdhaczac ? '' : 'none';
   $('#k-status').innerHTML = Object.entries(K_STATUSY).map(([k, n]) => `<button type="button" data-kstatus="${k}" class="${f.status === k ? 'on' : ''}" ${mozeOdhaczac ? '' : 'disabled'}>${n}</button>`).join('');
 }
 async function zapiszKredyt(cicho) {
@@ -694,7 +732,7 @@ async function zapiszKredyt(cicho) {
   f.notatka = $('#k-notatka').value.trim();
   if (!f.klient) { toast('Wpisz klienta'); return false; }
   const nowe = !S.kredyt;
-  const rekord = { klient: f.klient, oferta: f.oferta, bank: f.bank, notatka: f.notatka, etapy: f.etapy || {}, status: f.status, doradca: f.doradca || null, zmieniono: new Date().toISOString() };
+  const rekord = { klient: f.klient, oferta: f.oferta, bank: f.bank, notatka: f.notatka, etapy: f.etapy || {}, braki: f.braki || [], status: f.status, doradca: f.doradca || null, zmienil: S.me.id, zmieniono: new Date().toISOString() };
   if (nowe) { rekord.id = uuid(); rekord.utworzyl = S.me.id; } else rekord.id = S.kredyt.id;
   try {
     const w = await store.zapiszKredyt(rekord, nowe);
@@ -711,6 +749,24 @@ $('#kredyt-form').addEventListener('click', async (e) => {
   if (!b || b.disabled) return;
   const f = S.kForm;
   if (b.dataset.kdoradca) { f.doradca = b.dataset.kdoradca; rysujKredyt(); return; }
+  if (b.dataset.brak) {
+    const x = (f.braki || []).find((y) => y.id === b.dataset.brak);
+    if (x) {
+      x.zrobione = !x.zrobione;
+      x.kto_zrobil = x.zrobione ? S.me.id : null;
+      x.kiedy_zrobione = x.zrobione ? new Date().toISOString() : null;
+      rysujKredyt();
+      if (S.kredyt) await zapiszKredyt(true);
+    }
+    return;
+  }
+  if (b.dataset.brakUsun) {
+    f.braki = (f.braki || []).filter((y) => y.id !== b.dataset.brakUsun);
+    rysujKredyt();
+    if (S.kredyt) await zapiszKredyt(true);
+    return;
+  }
+  if (b.id === 'k-brak-btn') { await dodajBrak(); return; }
   if (b.dataset.etap) {
     f.etapy = f.etapy || {};
     if (f.etapy[b.dataset.etap]) delete f.etapy[b.dataset.etap];
@@ -732,6 +788,17 @@ $('#kredyt-form').addEventListener('click', async (e) => {
     catch (err) { toast(err.message); }
   }
 });
+async function dodajBrak() {
+  const pole = $('#k-brak-tekst');
+  const t = pole.value.trim();
+  if (!t) return;
+  pole.value = '';
+  pole.focus();
+  S.kForm.braki = (S.kForm.braki || []).concat([{ id: uuid(), tekst: t.slice(0, 200), kto: S.me.id, kiedy: new Date().toISOString(), zrobione: false }]);
+  rysujKredyt();
+  if (S.kredyt) await zapiszKredyt(true);
+}
+$('#k-brak-tekst').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); dodajBrak(); } });
 $('#kredyt-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   $('#k-zapisz').disabled = true;
@@ -743,23 +810,25 @@ $('#kredyt-form').addEventListener('submit', async (e) => {
 function htmlListy() {
   const otwarte = (id) => S.zadania.filter((z) => z.lista_id === id && z.status !== 'zrobione').length;
   const wszystkie = (id) => S.zadania.filter((z) => z.lista_id === id).length;
-  const karta_ = (l) => `<button class="list-card" data-otworz-liste="${esc(l.id)}">
+  const karta_ = (l) => `<div class="list-card" role="button" tabindex="0" data-id="${esc(l.id)}" data-otworz-liste="${esc(l.id)}">
+      <span class="drag" data-drag="1" title="Przeciągnij, żeby zmienić kolejność">⠿</span>
       <span class="list-ico">${esc(l.ikona)}</span>
       <span class="list-name">${esc(l.nazwa)}<small>${l.szablon ? `szablon · ${wszystkie(l.id)} pozycji` : `${otwarte(l.id)} otwartych`}${l.wspolna ? '' : ' · prywatna'}${l.wlasciciel !== S.me.id ? ' · ' + esc(osoba(l.wlasciciel).imie) : ''}</small></span>
       <span class="list-count">${l.szablon ? '📑' : otwarte(l.id)}</span>
-    </button>`;
+    </div>`;
   const q = S.szukaj.toLowerCase();
-  const zwykle = S.listy.filter((l) => !l.szablon).filter((l) => !q || l.nazwa.toLowerCase().includes(q));
-  const szablony = S.listy.filter((l) => l.szablon);
+  const poKolei = (a, b) => kluczListy(a) - kluczListy(b);
+  const zwykle = S.listy.filter((l) => !l.szablon).filter((l) => !q || l.nazwa.toLowerCase().includes(q)).sort(poKolei);
+  const szablony = S.listy.filter((l) => l.szablon).sort(poKolei);
   const wynik = q ? robocze().filter((z) => z.lista_id).filter(pasuje) : [];
-  $('#stats').innerHTML = statsHtml([[zwykle.length, 'list'], [szablony.length, 'szablonów'], [S.zadania.filter((z) => z.lista_id && z.status !== 'zrobione').length, 'otwartych na listach']]);
+  $('#stats').innerHTML = statsHtml([[zwykle.length, 'list'], [szablony.length, 'szablonów'], [robocze().filter((z) => z.lista_id && z.status !== 'zrobione').length, 'otwartych na listach']]);
   return `
     ${wynik.length ? `<div class="group-title">Znalezione na listach · ${wynik.length}</div>${wynik.map((z) => karta(z)).join('')}` : ''}
     <div class="group-title">Listy</div>
-    ${zwykle.map(karta_).join('') || '<div class="empty">Nie masz jeszcze list. Na przykład „Filmy do nagrania” albo „Opłaty, wrzesień”.</div>'}
+    <div class="sortuj-listy">${zwykle.map(karta_).join('')}</div>${zwykle.length ? '' : '<div class="empty">Nie masz jeszcze list. Na przykład „Filmy do nagrania” albo „Opłaty, wrzesień”.</div>'}
     <button class="btn-ghost wide dashed" data-nowa-lista="zwykla">+ Nowa lista</button>
     <div class="group-title">Szablony · wzory do powielania co miesiąc</div>
-    ${szablony.map(karta_).join('') || '<p class="hint">Szablon to lista wzór, np. „Szablon, opłaty”. Jednym kliknięciem robisz z niej „Opłaty, październik” ze wszystkimi pozycjami.</p>'}
+    <div class="sortuj-listy">${szablony.map(karta_).join('')}</div>${szablony.length ? '' : '<p class="hint">Szablon to lista wzór, np. „Szablon, opłaty”. Jednym kliknięciem robisz z niej „Opłaty, październik” ze wszystkimi pozycjami.</p>'}
     <button class="btn-ghost wide dashed" data-nowa-lista="szablon">+ Nowy szablon</button>`;
 }
 async function nowaLista(szablon) {
@@ -860,12 +929,40 @@ async function dodajNaListe() {
   }
 }
 // przeciąganie za uchwyt ⠿ (palec albo mysz); zapisuje tylko przesuniętą pozycję
-function wlaczPrzeciaganie(kontener) {
+let ostatniePrzeciagniecie = 0;
+const kluczListy = (l) => (l && l.kolejnosc ? Number(l.kolejnosc) : (Date.parse(l && l.utworzono) || 0));
+// wspólny zapis nowej pozycji: środek między sąsiadami (zapisuje się tylko przesunięty element)
+function nowaPozycja(kp, kn) {
+  if (kp != null && kn != null) return (kp + kn) / 2;
+  if (kp != null) return kp + 1000;
+  if (kn != null) return kn - 1000;
+  return null;
+}
+async function zapiszKolejnoscZadania(id, prevId, nextId) {
+  const z = S.zadania.find((x) => x.id === id);
+  const kp = prevId ? klucz(S.zadania.find((x) => x.id === prevId) || {}) : null;
+  const kn = nextId ? klucz(S.zadania.find((x) => x.id === nextId) || {}) : null;
+  const nowy = nowaPozycja(kp, kn);
+  if (!z || nowy == null || nowy === klucz(z)) return;
+  z.kolejnosc = nowy;
+  try { await store.zapiszZadanie({ id, kolejnosc: nowy, zmieniono: new Date().toISOString() }, false, []); }
+  catch (err) { toast('Nie zapisano kolejności: ' + err.message); }
+}
+async function zapiszKolejnoscListy(id, prevId, nextId) {
+  const l = lista(id);
+  const nowy = nowaPozycja(prevId ? kluczListy(lista(prevId)) : null, nextId ? kluczListy(lista(nextId)) : null);
+  if (!l || nowy == null) return;
+  l.kolejnosc = nowy;
+  try { await store.zapiszListe({ id, kolejnosc: nowy }, false); }
+  catch (err) { toast('Nie zapisano kolejności: ' + err.message); }
+}
+function wlaczPrzeciaganie(kontener, zapisz = zapiszKolejnoscZadania) {
   kontener.addEventListener('pointerdown', (e) => {
     const h = e.target.closest('[data-drag]');
     if (!h) return;
     e.preventDefault();
-    const el = h.closest('.task');
+    e.stopPropagation();
+    const el = h.closest('[data-id]');
     let startY = e.clientY;
     const startScroll = window.scrollY;
     kontener.classList.add('przeciagam');
@@ -878,11 +975,11 @@ function wlaczPrzeciaganie(kontener) {
       const prev = el.previousElementSibling, next = el.nextElementSibling;
       if (prev && prev.dataset.id) {
         const r = prev.getBoundingClientRect();
-        if (ev.clientY < r.top + r.height / 2) kontener.insertBefore(el, prev);
+        if (ev.clientY < r.top + r.height / 2) el.parentNode.insertBefore(el, prev);
       }
       if (next && next.dataset.id) {
         const r = next.getBoundingClientRect();
-        if (ev.clientY > r.top + r.height / 2) kontener.insertBefore(el, next.nextElementSibling);
+        if (ev.clientY > r.top + r.height / 2) el.parentNode.insertBefore(el, next.nextElementSibling);
       }
       startY += el.offsetTop - top; // element zmienił miejsce w układzie, palec zostaje na nim
       el.style.transform = `translateY(${ev.clientY - startY + (window.scrollY - startScroll)}px)`;
@@ -894,20 +991,9 @@ function wlaczPrzeciaganie(kontener) {
       el.style.transform = '';
       el.classList.remove('dragging');
       kontener.classList.remove('przeciagam');
-      const id = el.dataset.id;
-      const z = S.zadania.find((x) => x.id === id);
+      ostatniePrzeciagniecie = Date.now();
       const prevEl = el.previousElementSibling, nextEl = el.nextElementSibling;
-      const kp = prevEl && prevEl.dataset.id ? klucz(S.zadania.find((x) => x.id === prevEl.dataset.id) || {}) : null;
-      const kn = nextEl && nextEl.dataset.id ? klucz(S.zadania.find((x) => x.id === nextEl.dataset.id) || {}) : null;
-      let nowy;
-      if (kp != null && kn != null) nowy = (kp + kn) / 2;
-      else if (kp != null) nowy = kp + 1000;
-      else if (kn != null) nowy = kn - 1000;
-      else return;
-      if (!z || nowy === klucz(z)) return;
-      z.kolejnosc = nowy;
-      try { await store.zapiszZadanie({ id, kolejnosc: nowy, zmieniono: new Date().toISOString() }, false, []); }
-      catch (err) { toast('Nie zapisano kolejności: ' + err.message); }
+      await zapisz(el.dataset.id, prevEl && prevEl.dataset.id, nextEl && nextEl.dataset.id);
     };
     h.addEventListener('pointermove', przesun);
     h.addEventListener('pointerup', koniec);
@@ -945,7 +1031,7 @@ function htmlGantt() {
   const zakres = robocze().filter((z) => z.termin && (!osobaFiltr || z.przypisany === osobaFiltr));
   const bezTerminu = robocze().filter((z) => !z.termin && z.status !== 'zrobione' && (!osobaFiltr || z.przypisany === osobaFiltr)).length;
   const pasek = (z) => {
-    let start = z.od || tsDzien(z.utworzono) || z.termin;
+    let start = z.od || z.termin; // jeden dzień, chyba że wpisano "Początek"
     if (start > z.termin) start = z.termin;
     if (z.termin < od || start > doD) return null;
     return { z, a: Math.max(0, idx(start)), b: Math.min(GANTT_DNI - 1, idx(z.termin)), uciete: start < od };
@@ -990,7 +1076,7 @@ function htmlGantt() {
     <div class="g-wrap"><div class="gantt" style="grid-template-columns: var(--g-name) repeat(${GANTT_DNI}, var(--g-day))">
       <div class="g-corner">Zadanie</div>${naglowek}${linia}${wiersze || '<div class="g-name g-empty" style="grid-row:2">Brak zadań z terminem w tym okresie</div>'}
     </div></div>
-    <p class="hint">Pasek biegnie od początku zadania (albo dnia dodania) do terminu. Dla zadań na kilka dni ustaw „Początek” w formularzu.</p>`;
+    <p class="hint">Każde zadanie to jeden dzień, jego termin. Dłuższy pasek pojawi się tylko wtedy, gdy w zadaniu wpiszesz „Początek” (zadanie na kilka dni).</p>`;
 }
 
 // ---------- PODSUMOWANIE DNIA (23:50) ----------
@@ -1003,15 +1089,37 @@ function podsumowanieDnia(d, osobaId) {
   const dodatkowe = robocze().filter((z) => z.status === 'zrobione' && tsDzien(z.zrobione_kiedy) === d && z.termin !== d && (!osobaId || z.zrobione_przez === osobaId || z.przypisany === osobaId));
   return { plan: plan.length, zrobionePlan: zrobionePlan.length, niezrobione, dodatkowe, procent: plan.length ? Math.round((zrobionePlan.length / plan.length) * 100) : 0 };
 }
-function pokazPodsumowanie(d) {
-  const kto = jestemAdminem() ? null : S.me.id;
+function wynikOkresu(od, doD, osobaId) {
+  const plan = robocze().filter((z) => z.termin && z.termin >= od && z.termin <= doD && (!osobaId || z.przypisany === osobaId));
+  const zr = plan.filter((z) => z.status === 'zrobione').length;
+  return { plan: plan.length, zrobione: zr, procent: plan.length ? Math.round((zr / plan.length) * 100) : null };
+}
+function htmlWyniki() {
+  const t = dzis(), od7 = plusDni(t, -6);
+  const osoby = [null, S.me.id].concat(ROLE_GRUPY.map(([r]) => aktywni().filter((p) => p.rola === r && p.id !== S.me.id).map((p) => p.id)).flat());
+  const kom = (w) => (w.plan ? `<b class="${w.procent >= 80 ? 'green' : w.procent < 50 ? 'red' : ''}">${w.procent}%</b><small>${w.zrobione}/${w.plan}</small>` : '<b class="muted">–</b><small>brak planu</small>');
+  const pasek = (w) => `<span class="mini-bar"><i style="width:${w.procent || 0}%"></i></span>`;
+  return `<div class="card wyniki"><div class="card-title">Wykonanie planu (zadania z terminem)</div>
+    <div class="wynik-row head"><span></span><span>dziś</span><span>7 dni</span></div>
+    ${osoby.map((id) => {
+      const wd = wynikOkresu(t, t, id), w7 = wynikOkresu(od7, t, id);
+      const nazwa = id ? `${avatar(id, true)} ${esc(osoba(id).imie)}${id === S.me.id ? ' (ja)' : ''} <small>${esc(ROLE[osoba(id).rola] || '')}</small>` : '👥 <b>Cały zespół</b>';
+      return `<button class="wynik-row${id ? '' : ' razem'}" data-podsum="${t}" data-podsum-osoba="${id || ''}">
+        <span class="wynik-kto">${nazwa}</span><span class="wynik-pct">${kom(wd)}${pasek(wd)}</span><span class="wynik-pct">${kom(w7)}${pasek(w7)}</span></button>`;
+    }).join('')}
+    <p class="hint">Kliknij wiersz: pełne podsumowanie dnia z listą tego, co nie zostało zrobione.</p></div>`;
+}
+function pokazPodsumowanie(d, osobaId) {
+  // konkretna osoba z panelu; bez wskazania: menedżer widzi zespół, reszta siebie
+  const kto = osobaId || (jestemAdminem() ? null : S.me.id);
+  const naglowekOsoby = kto ? `${esc(osoba(kto).imie)} · ` : (jestemAdminem() ? 'Cały zespół · ' : '');
   const w = podsumowanieDnia(d, kto);
   const kolor = w.procent >= 80 ? 'var(--success)' : w.procent >= 50 ? 'var(--accent)' : 'var(--danger)';
-  const zespol = jestemAdminem() ? aktywni().map((p) => ({ p, w: podsumowanieDnia(d, p.id) })).filter((x) => x.w.plan || x.w.dodatkowe.length) : [];
+  const zespol = jestemAdminem() && !kto ? aktywni().map((p) => ({ p, w: podsumowanieDnia(d, p.id) })).filter((x) => x.w.plan || x.w.dodatkowe.length) : [];
   const mojeNiezrobione = w.niezrobione.filter((z) => z.przypisany === S.me.id);
   $('#podsum').innerHTML = `
     <div class="card center">
-      <div class="card-title">${esc(naglowekDnia(d))}</div>
+      <div class="card-title">${naglowekOsoby}${esc(naglowekDnia(d))}</div>
       <div class="ring" style="--p:${w.procent};--c:${kolor}"><span>${w.plan ? w.procent + '%' : '–'}</span></div>
       <p class="big-line">${w.plan ? `Zrobione <b>${w.zrobionePlan}</b> z <b>${w.plan}</b> zaplanowanych${kto ? '' : ' w zespole'}` : 'Na ten dzień nic nie było zaplanowane'}</p>
       <p class="hint">${w.niezrobione.length ? `Nie zrobiono: <b>${w.niezrobione.length}</b>` : w.plan ? 'Wszystko z planu zrobione 👏' : ''}${w.dodatkowe.length ? ` · spoza planu zrobione: <b>${w.dodatkowe.length}</b>` : ''}</p>
@@ -1031,7 +1139,7 @@ function pokazPodsumowanie(d) {
       } catch (e) { toast('Nie przeniesiono: ' + e.message); break; }
     }
     toast(`Przeniesione na ${nazwaDnia(cel)}`);
-    pokazPodsumowanie(d);
+    pokazPodsumowanie(d, kto || '');
     odswiez();
   };
   try { localStorage.setItem('rm-podsum-' + d, '1'); } catch (e) { /* brak */ }
@@ -1343,6 +1451,7 @@ $('#osoby-filtr').addEventListener('click', (e) => {
 });
 $('#szukaj').addEventListener('input', (e) => { S.szukaj = e.target.value.trim(); renderMain(); });
 document.addEventListener('click', (e) => {
+  if (Date.now() - ostatniePrzeciagniecie < 400) return; // puszczenie po przeciągnięciu to nie kliknięcie
   const zw = e.target.closest('[data-zwin]');
   if (zw) { przelaczGrupe(zw.dataset.zwin, zw.dataset.domyslnie === '1'); odrysuj(); return; }
   const g = e.target.closest('[data-gcal]');
@@ -1354,7 +1463,7 @@ document.addEventListener('click', (e) => {
   const kr = e.target.closest('[data-kredyt]');
   if (kr) { const k = S.kredyty.find((x) => x.id === kr.dataset.kredyt); if (k) otworzKredyt(k); return; }
   const ps = e.target.closest('[data-podsum]');
-  if (ps) { pokazPodsumowanie(ps.dataset.podsum); return; }
+  if (ps) { pokazPodsumowanie(ps.dataset.podsum, ps.dataset.podsumOsoba); return; }
   const ol = e.target.closest('[data-otworz-liste]');
   if (ol) { otworzListe(ol.dataset.otworzListe); return; }
   const nl = e.target.closest('[data-nowa-lista]');

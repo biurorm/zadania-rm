@@ -1,7 +1,7 @@
 // Service Worker, dzialanie offline
 // Strategia: najpierw siec (nowa wersja wchodzi od razu), bez zasiegu cache.
 // Tylko pliki aplikacji z tej samej domeny; zapytania do bazy (Supabase) omijaja cache.
-const CACHE = 'zadania-rm-v5';
+const CACHE = 'zadania-rm-v7';
 const FILES = ['./', './index.html', './style.css', './app.js', './config.js', './vendor/supabase.js', './manifest.json', './logo.png', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {
