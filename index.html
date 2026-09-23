@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="mobile-web-app-capable" content="yes">
-  <link rel="stylesheet" href="style.css?v=8">
+  <link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 
@@ -146,6 +146,11 @@
     <div id="lista"></div>
   </section>
 
+  <!-- JEDEN DZIEŃ (z Gantta, także w nowym oknie) -->
+  <section class="screen" id="screen-dzien">
+    <div id="dzien"></div>
+  </section>
+
   <!-- PODSUMOWANIE DNIA -->
   <section class="screen" id="screen-podsumowanie">
     <div id="podsum"></div>
@@ -225,7 +230,7 @@
 
 <script src="config.js?v=1"></script>
 <script src="vendor/supabase.js"></script>
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));

@@ -367,10 +367,10 @@ const nastepnyEtap = (k) => ETAPY.find((e) => !(k.etapy && k.etapy[e.k]));
 function pokaz(ekran) {
   document.querySelectorAll('.screen').forEach((s) => s.classList.toggle('active', s.id === 'screen-' + ekran));
   const zalogowany = !!S.me;
-  $('#back-btn').style.display = ['detail', 'form', 'settings', 'kredyt', 'lista', 'podsumowanie'].includes(ekran) ? '' : 'none';
+  $('#back-btn').style.display = ['detail', 'form', 'settings', 'kredyt', 'lista', 'podsumowanie', 'dzien'].includes(ekran) ? '' : 'none';
   $('#settings-btn').style.display = zalogowany && ekran === 'main' ? '' : 'none';
   $('#fab').style.display = zalogowany && ekran === 'main' && S.widok !== 'panel' && !(S.widok === 'kredyty' && false) ? '' : 'none';
-  $('#header-subtitle').textContent = { detail: 'Zadanie', form: 'Zadanie', settings: 'Ustawienia', kredyt: 'Kredyt', lista: 'Lista', podsumowanie: 'Podsumowanie dnia' }[ekran]
+  $('#header-subtitle').textContent = { detail: 'Zadanie', form: 'Zadanie', settings: 'Ustawienia', kredyt: 'Kredyt', lista: 'Lista', podsumowanie: 'Podsumowanie dnia', dzien: 'Dzień' }[ekran]
     || (zalogowany ? `${ja().imie}, ${ROLE[mojaRola()] || ''}` : 'Zadania');
   window.scrollTo(0, 0);
 }
@@ -383,6 +383,7 @@ window.addEventListener('popstate', () => {
   if (e === 'detail' && S.otwarte) renderSzczegoly();
   if (e === 'main') renderMain();
   if (e === 'lista') renderLista();
+  if (e === 'dzien') renderDzien();
   pokaz(e);
 });
 $('#back-btn').addEventListener('click', cofnij);
@@ -419,6 +420,7 @@ async function odswiez() {
   if (e === 'main') renderMain();
   if (e === 'detail') renderSzczegoly();
   if (e === 'lista') renderLista();
+  if (e === 'dzien') renderDzien();
 }
 window.addEventListener('online', odswiez);
 window.addEventListener('offline', () => baner('Brak zasięgu. Zmiany zapiszesz po powrocie sieci.'));
@@ -451,8 +453,11 @@ function grupuj(lista) {
     else { const n = naglowekDnia(z.termin); (g[n] = g[n] || []).push(z); }
   });
   g['Bez terminu'] = bez;
-  // w dniu najważniejsze na górze
-  Object.keys(g).forEach((k) => g[k].sort(poPriorytecie));
+  // w dniu najważniejsze na górze, a gdy ktoś ułożył ręcznie (przeciąganie), liczy się jego kolejność
+  Object.keys(g).forEach((k) => {
+    if (g[k].some((z) => z.kolejnosc != null)) g[k].sort((a, b) => klucz(a) - klucz(b));
+    else g[k].sort(poPriorytecie);
+  });
   return g;
 }
 function karta(z, opcje = {}) {
@@ -515,9 +520,9 @@ function przelaczGrupe(klucz_, domyslnie) {
 }
 function grupaHtml(klucz_, tytul, lista_, opcje = {}) {
   const zw = czyZwiniete(klucz_, !!opcje.domyslnieZwinieta);
-  return `<div class="grupa${zw ? ' zwinieta' : ''}">
+  return `<div class="grupa${zw ? ' zwinieta' : ''}"${opcje.listaId ? ` data-id="${esc(opcje.listaId)}"` : ''}>
     <button class="group-title zwin${opcje.alert ? ' alert' : ''}" data-zwin="${esc(klucz_)}" data-domyslnie="${opcje.domyslnieZwinieta ? 1 : 0}" aria-expanded="${!zw}">
-      <span class="strzalka">${zw ? '▸' : '▾'}</span> ${tytul} · ${lista_.length}</button>
+      ${opcje.listaId ? '<span class="drag" data-drag="1" title="Przeciągnij, żeby zmienić kolejność list">⠿</span>' : ''}<span class="strzalka">${zw ? '▸' : '▾'}</span> ${tytul} · ${lista_.length}</button>
     ${zw ? '' : lista_.map((z) => karta(z, opcje.karta || {})).join('')}
   </div>`;
 }
@@ -532,10 +537,10 @@ function renderGrupy(zadania, pusto) {
   });
   const g = grupuj(reszta);
   let html = Object.entries(g).filter(([, l]) => l.length)
-    .map(([n, l]) => grupaHtml(S.widok + ':' + n, n, l, { alert: n === 'Zaległe' })).join('');
+    .map(([n, l]) => grupaHtml(S.widok + ':' + n, n, l, { alert: n === 'Zaległe', karta: { uchwyt: true } })).join('');
   html += S.listy.filter((l) => naListach[l.id]).sort((a, b) => kluczListy(a) - kluczListy(b)).map((l) =>
     grupaHtml(S.widok + ':lista:' + l.id, `${esc(l.ikona)} ${esc(l.nazwa)}`,
-      naListach[l.id].sort((a, b) => klucz(a) - klucz(b)), { domyslnieZwinieta: true, karta: { bezListy: true, uchwyt: true } })).join('');
+      naListach[l.id].sort((a, b) => klucz(a) - klucz(b)), { domyslnieZwinieta: true, listaId: l.id, karta: { bezListy: true, uchwyt: true } })).join('');
   return html || `<div class="empty">${pusto}</div>`;
 }
 function statsHtml(pola) {
@@ -1048,62 +1053,179 @@ async function uzyjSzablonu(szablon) {
 
 // ---------- WYKRES GANTTA ----------
 const GANTT_DNI = 21;
-function ganttStart() { return S.ganttOd || plusDni(dzis(), -3); }
+// zadania jednego dnia (termin albo zakres Początek-termin obejmuje ten dzień)
+function zadaniaDnia(d, osobaId) {
+  return robocze().filter((z) => z.termin && (z.od || z.termin) <= d && z.termin >= d && (!osobaId || z.przypisany === osobaId))
+    .sort((a, b) => (a.status === 'zrobione') - (b.status === 'zrobione') || poPriorytecie(a, b));
+}
+function htmlDniaGantta(osobaId) {
+  const d = S.ganttDzien || dzis();
+  const l = zadaniaDnia(d, osobaId);
+  return `<div class="card dzien-gantt">
+    <div class="day-head"><b>${esc(naglowekDnia(d))} · ${l.length}</b>
+      <span class="btn-inline"><button class="pill" data-dodaj-dzien="${d}">+ Dodaj</button><button class="pill" data-okno-dzien="${d}">⤢ Otwórz w nowym oknie</button></span></div>
+    ${l.map((z) => karta(z, { bezDaty: true })).join('') || '<div class="empty">Nic na ten dzień.</div>'}
+  </div>`;
+}
+
+// ---------- WIDOK JEDNEGO DNIA (pełny ekran / nowe okno) ----------
+function otworzDzien(d, wNowymOknie) {
+  if (wNowymOknie) {
+    const u = new URL(location.href);
+    u.search = ''; u.hash = '';
+    u.searchParams.set('dzien', d);
+    if (S.ganttOsoba) u.searchParams.set('osoba', S.ganttOsoba);
+    window.open(u.toString(), '_blank', 'width=720,height=900');
+    return;
+  }
+  S.dzien = d;
+  renderDzien();
+  if (biezacy() !== 'dzien') wejdz('dzien');
+}
+function renderDzien() {
+  const d = S.dzien || dzis();
+  const osobaId = jestemAdminem() ? (S.dzienOsoba || '') : S.me.id;
+  const l = zadaniaDnia(d, osobaId || null);
+  const otw = l.filter((z) => z.status !== 'zrobione'), zr = l.filter((z) => z.status === 'zrobione');
+  const w = l.length ? Math.round((zr.length / l.length) * 100) : null;
+  const ludzie = osobaId ? [osobaId] : [...new Set(otw.map((z) => z.przypisany))];
+  $('#dzien').innerHTML = `
+    <div class="card">
+      <div class="cal-head"><b>${esc(naglowekDnia(d))}</b>
+        <div class="cal-nav"><button data-dzien-nav="-1" aria-label="Poprzedni dzień">‹</button><button data-dzien-nav="0">Dziś</button><button data-dzien-nav="1" aria-label="Następny dzień">›</button></div></div>
+      ${jestemAdminem() ? `<div class="chips chips-scroll">${[['', 'Cały zespół']].concat(aktywni().map((p) => [p.id, p.imie])).map(([id, n]) => `<button class="chip${(S.dzienOsoba || '') === id ? ' on' : ''}" data-dzien-osoba="${esc(id)}">${esc(n)}</button>`).join('')}</div>` : ''}
+      <p class="hint">${l.length ? `Zrobione ${zr.length} z ${l.length} (${w}%)` : 'Nic zaplanowanego.'}</p>
+      <button class="pill" data-dodaj-dzien="${d}">+ Dodaj na ten dzień</button>
+    </div>
+    ${ludzie.map((id) => {
+      const moje = otw.filter((z) => z.przypisany === id);
+      if (!moje.length) return '';
+      return (osobaId ? '' : `<div class="group-title">${avatar(id, true)} ${esc(osoba(id).imie)} · ${moje.length}</div>`) + moje.map((z) => karta(z, { bezDaty: true })).join('');
+    }).join('')}
+    ${zr.length ? `<div class="group-title">Zrobione · ${zr.length}</div>${zr.map((z) => karta(z, { bezDaty: true })).join('')}` : ''}`;
+}
+// zakres wykresu: dzień, 7 dni (tydzień pn-nd), miesiąc, kwartał, rok; strzałki przesuwają o cały zakres
+const GANTT_ZAKRESY = [['dzien', 'Dziś'], ['tydzien', '7 dni'], ['miesiac', 'Miesiąc'], ['kwartal', 'Kwartał'], ['rok', 'Rok']];
+const RZYMSKIE = ['I', 'II', 'III', 'IV'];
+function okresGantta() {
+  const zakres = S.ganttZakres || 'tydzien';
+  const k = parseYmd(S.ganttKotwica || dzis());
+  let od, doD, jednostka = 'dzien', etykieta;
+  if (zakres === 'dzien') { od = doD = ymd(k); etykieta = naglowekDnia(od); }
+  else if (zakres === 'tydzien') {
+    od = plusDni(ymd(k), -((k.getDay() + 6) % 7)); doD = plusDni(od, 6);
+    const a = parseYmd(od), b = parseYmd(doD);
+    etykieta = `${a.getDate()} ${MIESIACE_D[a.getMonth()]} – ${b.getDate()} ${MIESIACE_D[b.getMonth()]} ${b.getFullYear()}`;
+  } else if (zakres === 'miesiac') {
+    od = ymd(new Date(k.getFullYear(), k.getMonth(), 1)); doD = ymd(new Date(k.getFullYear(), k.getMonth() + 1, 0));
+    etykieta = `${MIESIACE[k.getMonth()][0].toUpperCase() + MIESIACE[k.getMonth()].slice(1)} ${k.getFullYear()}`;
+  } else if (zakres === 'kwartal') {
+    const q = Math.floor(k.getMonth() / 3);
+    od = ymd(new Date(k.getFullYear(), q * 3, 1)); doD = ymd(new Date(k.getFullYear(), q * 3 + 3, 0));
+    etykieta = `${RZYMSKIE[q]} kwartał ${k.getFullYear()} (${MIESIACE[q * 3].slice(0, 3)}–${MIESIACE[q * 3 + 2].slice(0, 3)})`;
+  } else {
+    od = `${k.getFullYear()}-01-01`; doD = `${k.getFullYear()}-12-31`; jednostka = 'tydzien'; etykieta = `Rok ${k.getFullYear()}`;
+  }
+  // kolumny: dni albo tygodnie (rok)
+  const start = jednostka === 'dzien' ? od : plusDni(od, -((parseYmd(od).getDay() + 6) % 7));
+  const dzienIdx = (d) => Math.round((parseYmd(d) - parseYmd(start)) / 86400000);
+  const idx = (d) => (jednostka === 'dzien' ? dzienIdx(d) : Math.floor(dzienIdx(d) / 7));
+  const kolumn = idx(doD) + 1;
+  return { zakres, od, doD, jednostka, etykieta, start, idx, kolumn };
+}
+function przesunGantt(n) {
+  const z = S.ganttZakres || 'tydzien';
+  if (n === 0) { S.ganttKotwica = dzis(); return; }
+  const k = parseYmd(S.ganttKotwica || dzis());
+  if (z === 'dzien') S.ganttKotwica = plusDni(ymd(k), n);
+  else if (z === 'tydzien') S.ganttKotwica = plusDni(ymd(k), 7 * n);
+  else if (z === 'miesiac') S.ganttKotwica = ymd(new Date(k.getFullYear(), k.getMonth() + n, 1));
+  else if (z === 'kwartal') S.ganttKotwica = ymd(new Date(k.getFullYear(), k.getMonth() + 3 * n, 1));
+  else S.ganttKotwica = ymd(new Date(k.getFullYear() + n, 0, 1));
+}
 function htmlGantt() {
-  const od = ganttStart(), doD = plusDni(od, GANTT_DNI - 1), t = dzis();
+  const t = dzis();
   if (S.ganttOsoba == null || !jestemAdminem()) S.ganttOsoba = S.me.id;
   const osobaFiltr = S.ganttOsoba;
-  const dni = Array.from({ length: GANTT_DNI }, (_, i) => plusDni(od, i));
-  const idx = (d) => Math.round((parseYmd(d) - parseYmd(od)) / 86400000);
-  const zakres = robocze().filter((z) => z.termin && (!osobaFiltr || z.przypisany === osobaFiltr));
+  const O = okresGantta();
+  const zadaniaOsoby = robocze().filter((z) => z.termin && (!osobaFiltr || z.przypisany === osobaFiltr));
+  const wOkresie = zadaniaOsoby.filter((z) => z.termin >= O.od && (z.od || z.termin) <= O.doD);
   const bezTerminu = robocze().filter((z) => !z.termin && z.status !== 'zrobione' && (!osobaFiltr || z.przypisany === osobaFiltr)).length;
   const pasek = (z) => {
     let start = z.od || z.termin; // jeden dzień, chyba że wpisano "Początek"
     if (start > z.termin) start = z.termin;
-    if (z.termin < od || start > doD) return null;
-    return { z, a: Math.max(0, idx(start)), b: Math.min(GANTT_DNI - 1, idx(z.termin)), uciete: start < od };
+    if (z.termin < O.od || start > O.doD) return null;
+    const s0 = start < O.od ? O.od : start, s1 = z.termin > O.doD ? O.doD : z.termin;
+    return { z, a: O.idx(s0), b: O.idx(s1), uciete: start < O.od };
   };
   const ludzie = osobaFiltr ? [osoba(osobaFiltr)] : ROLE_GRUPY.map(([r]) => aktywni().filter((p) => p.rola === r)).flat();
   let r = 2;
   let wiersze = '';
   ludzie.forEach((p) => {
-    const paski = zakres.filter((z) => z.przypisany === p.id).map(pasek).filter(Boolean)
+    const paski = wOkresie.filter((z) => z.przypisany === p.id).map(pasek).filter(Boolean)
       .sort((x, y) => x.a - y.a || (x.z.priorytet || 3) - (y.z.priorytet || 3));
     if (!osobaFiltr) { wiersze += `<div class="g-person" style="grid-row:${r}">${avatar(p.id, true)} ${esc(p.imie)} <small>${paski.length}</small></div>`; r++; }
     if (!paski.length) { wiersze += `<div class="g-name g-empty" style="grid-row:${r}">brak zadań w tym okresie</div>`; r++; }
     paski.forEach(({ z, a, b, uciete }) => {
       const stan = z.status === 'zrobione' ? 'done' : z.termin < t ? 'late' : z.status === 'w_toku' ? 'prog' : 'open';
       wiersze += `<button class="g-name" style="grid-row:${r}" data-open="${esc(z.id)}" title="${esc(z.tytul)}">${typ(z.typ).i} ${esc(z.tytul)}</button>`
-        + `<button class="g-bar ${stan} p${z.priorytet || 3}${uciete ? ' cut' : ''}" style="grid-row:${r};grid-column:${a + 2} / ${b + 3}" data-open="${esc(z.id)}" title="${esc(z.tytul)}, termin ${esc(nazwaDnia(z.termin))}">${b - a >= 2 ? esc(z.tytul) : ''}</button>`;
+        + `<button class="g-bar ${stan} p${z.priorytet || 3}${uciete ? ' cut' : ''}" style="grid-row:${r};grid-column:${a + 2} / ${b + 3}" data-open="${esc(z.id)}" title="${esc(z.tytul)}, termin ${esc(nazwaDnia(z.termin))}">${O.kolumn <= 31 && b - a >= 2 ? esc(z.tytul) : ''}</button>`;
       r++;
     });
   });
-  const naglowek = dni.map((d, i) => {
+  // nagłówek kolumn
+  let naglowek = '';
+  for (let i = 0; i < O.kolumn; i++) {
+    const d = O.jednostka === 'dzien' ? plusDni(O.start, i) : plusDni(O.start, i * 7);
     const x = parseYmd(d);
-    return `<div class="g-day${d === t ? ' today' : ''}${[0, 6].includes(x.getDay()) ? ' we' : ''}" style="grid-column:${i + 2}"><small>${DNI[(x.getDay() + 6) % 7]}</small>${x.getDate()}</div>`;
-  }).join('');
-  const dzisKol = idx(t);
-  const linia = dzisKol >= 0 && dzisKol < GANTT_DNI ? `<div class="g-today" style="grid-column:${dzisKol + 2};grid-row:1 / ${Math.max(r, 3)}"></div>` : '';
+    let tekst;
+    if (O.jednostka === 'tydzien') {
+      // rok: kolumna = tydzień; nazwa miesiąca tam, gdzie zaczyna się miesiąc
+      const koniec = plusDni(d, 6);
+      const nowyMies = x.getDate() <= 7 || parseYmd(koniec).getMonth() !== x.getMonth();
+      const m = parseYmd(koniec).getMonth() !== x.getMonth() ? parseYmd(koniec).getMonth() : x.getMonth();
+      tekst = nowyMies && (i === 0 || parseYmd(plusDni(d, -1)).getMonth() !== m || x.getDate() === 1) ? `<small>${MIESIACE[m].slice(0, 3)}</small>` : '<small>&nbsp;</small>';
+      tekst += '';
+    } else if (O.kolumn > 31) {
+      // kwartał: wąskie kolumny, podpis tylko w poniedziałki i 1. dnia miesiąca
+      tekst = x.getDate() === 1 ? `<small>${MIESIACE[x.getMonth()].slice(0, 3)}</small>1` : x.getDay() === 1 ? `<small>&nbsp;</small>${x.getDate()}` : '<small>&nbsp;</small>';
+    } else {
+      tekst = `<small>${DNI[(x.getDay() + 6) % 7]}</small>${x.getDate()}`;
+    }
+    const wTyg = O.jednostka === 'tydzien' && t >= d && t <= plusDni(d, 6);
+    const wybrany_ = S.ganttDzien && (O.jednostka === 'tydzien' ? S.ganttDzien >= d && S.ganttDzien <= plusDni(d, 6) : S.ganttDzien === d);
+    naglowek += `<div class="g-day${d === t || wTyg ? ' today' : ''}${wybrany_ ? ' wybrany' : ''}${O.jednostka === 'dzien' && [0, 6].includes(x.getDay()) ? ' we' : ''}" style="grid-column:${i + 2}" data-gantt-dzien="${d}" role="button" title="${esc(naglowekDnia(d))}">${tekst}</div>`;
+  }
+  const kolDzis = t >= O.od && t <= O.doD ? O.idx(t) : -1;
+  const kolWyb = S.ganttDzien && S.ganttDzien >= O.od && S.ganttDzien <= O.doD ? O.idx(S.ganttDzien) : -1;
+  const linia = kolDzis >= 0 ? `<div class="g-today" style="grid-column:${kolDzis + 2};grid-row:1 / ${Math.max(r, 3)}"></div>` : '';
+  const wybrany = kolWyb >= 0 && kolWyb !== kolDzis ? `<div class="g-wybrany" style="grid-column:${kolWyb + 2};grid-row:1 / ${Math.max(r, 3)}"></div>` : '';
   const chipy = !jestemAdminem() ? '' : `<button class="chip${S.ganttOsoba === '' ? ' on' : ''}" data-gantt-osoba="">Cały zespół</button>` +
     aktywni().map((p) => `<button class="chip${S.ganttOsoba === p.id ? ' on' : ''}" data-gantt-osoba="${esc(p.id)}">${avatar(p.id, true)} ${esc(p.id === S.me.id ? p.imie + ' (ja)' : p.imie)}</button>`).join('');
-  const pOd = parseYmd(od), pDo = parseYmd(doD);
+  const zr = wOkresie.filter((z) => z.status === 'zrobione').length;
   $('#stats').innerHTML = statsHtml([
-    [zakres.filter((z) => z.status !== 'zrobione' && z.termin < t).length, 'po terminie', true],
-    [zakres.filter((z) => z.status === 'w_toku').length, 'w toku'],
-    [zakres.filter((z) => z.status !== 'zrobione' && z.termin >= t && z.termin <= plusDni(t, 7)).length, 'w 7 dni'],
+    [wOkresie.length ? Math.round((zr / wOkresie.length) * 100) + '%' : '–', `zrobione (${zr}/${wOkresie.length})`],
+    [wOkresie.filter((z) => z.status !== 'zrobione' && z.termin < t).length, 'po terminie', true],
+    [wOkresie.filter((z) => z.status === 'w_toku').length, 'w toku'],
     [bezTerminu, 'bez terminu']
   ]);
+  const szer = O.kolumn <= 1 ? 'var(--g-day-1)' : O.kolumn <= 7 ? 'var(--g-day-7)' : O.kolumn <= 31 ? 'var(--g-day)' : O.jednostka === 'tydzien' ? 'var(--g-week)' : 'var(--g-day-q)';
+  const wybor = S.ganttZakres === 'miesiac' ? `<input type="month" class="g-pick" data-gantt-miesiac value="${O.od.slice(0, 7)}">`
+    : S.ganttZakres === 'kwartal' ? `<select class="g-pick" data-gantt-kwartal>${[0, 1, 2, 3].map((q) => `<option value="${q}"${Math.floor(parseYmd(O.od).getMonth() / 3) === q ? ' selected' : ''}>${RZYMSKIE[q]} kwartał</option>`).join('')}</select>` : '';
+  const rokWybor = ['kwartal', 'rok'].includes(S.ganttZakres) ? `<select class="g-pick" data-gantt-rok>${[-2, -1, 0, 1].map((n) => new Date().getFullYear() + n).map((y) => `<option${parseYmd(O.od).getFullYear() === y ? ' selected' : ''}>${y}</option>`).join('')}</select>` : '';
   return `
     <div class="chips chips-scroll">${chipy}</div>
+    <div class="chips g-zakresy">${GANTT_ZAKRESY.map(([k, n]) => `<button class="chip${(S.ganttZakres || 'tydzien') === k ? ' on' : ''}" data-gantt-zakres="${k}">${n}</button>`).join('')}</div>
     <div class="cal-head">
-      <b>${pOd.getDate()} ${MIESIACE_D[pOd.getMonth()]} – ${pDo.getDate()} ${MIESIACE_D[pDo.getMonth()]}</b>
-      <div class="cal-nav"><button data-gantt="-7" aria-label="Tydzień wstecz">‹</button><button data-gantt="0">Dziś</button><button data-gantt="7" aria-label="Tydzień dalej">›</button></div>
+      <b>${esc(O.etykieta)}</b>
+      <div class="cal-nav">${wybor}${rokWybor}<button data-gantt-nav="-1" aria-label="Wstecz">‹</button><button data-gantt-nav="0">Dziś</button><button data-gantt-nav="1" aria-label="Dalej">›</button></div>
     </div>
     <div class="g-legend"><span class="lg open"></span>do zrobienia <span class="lg prog"></span>w toku <span class="lg late"></span>po terminie <span class="lg done"></span>zrobione</div>
-    <div class="g-wrap"><div class="gantt" style="grid-template-columns: var(--g-name) repeat(${GANTT_DNI}, var(--g-day))">
-      <div class="g-corner">Zadanie</div>${naglowek}${linia}${wiersze || '<div class="g-name g-empty" style="grid-row:2">Brak zadań z terminem w tym okresie</div>'}
+    <div class="g-wrap"><div class="gantt${O.kolumn > 31 ? ' gesty' : ''}" style="grid-template-columns: var(--g-name) repeat(${O.kolumn}, ${szer})">
+      <div class="g-corner">Zadanie</div>${naglowek}${linia}${wybrany}${wiersze || '<div class="g-name g-empty" style="grid-row:2">Brak zadań z terminem w tym okresie</div>'}
     </div></div>
-    <p class="hint">Każde zadanie to jeden dzień, jego termin. Dłuższy pasek pojawi się tylko wtedy, gdy w zadaniu wpiszesz „Początek” (zadanie na kilka dni).</p>`;
+    ${htmlDniaGantta(osobaFiltr)}
+    <p class="hint">Kliknij dzień w nagłówku wykresu (w widoku roku: tydzień), żeby zobaczyć jego zadania. Każde zadanie to jeden dzień, jego termin; dłuższy pasek tylko przy wpisanym „Początku”.</p>`;
 }
 
 // ---------- PODSUMOWANIE DNIA (23:50) ----------
@@ -1121,20 +1243,48 @@ function wynikOkresu(od, doD, osobaId) {
   const zr = plan.filter((z) => z.status === 'zrobione').length;
   return { plan: plan.length, zrobione: zr, procent: plan.length ? Math.round((zr / plan.length) * 100) : null };
 }
+// okresy w panelu: dziś, 7 dni, wybrany miesiąc, wybrany kwartał, wybrany rok (liczone do dziś, przyszłość nie zaniża wyniku)
+function okresyWynikow() {
+  const t = dzis(), teraz = new Date();
+  const [my, mm] = (S.wynMiesiac || t.slice(0, 7)).split('-').map(Number);
+  const rokQ = S.wynKwartalRok || teraz.getFullYear();
+  const q = S.wynKwartal != null ? S.wynKwartal : Math.floor(teraz.getMonth() / 3);
+  const rok = S.wynRok || teraz.getFullYear();
+  const doDzis = (d) => (d > t ? t : d);
+  return [
+    ['Dziś', t, t],
+    ['7 dni', plusDni(t, -6), t],
+    [`${MIESIACE[mm - 1].slice(0, 3)} ${my}`, ymd(new Date(my, mm - 1, 1)), doDzis(ymd(new Date(my, mm, 0)))],
+    [`${RZYMSKIE[q]} kw. ${rokQ}`, ymd(new Date(rokQ, q * 3, 1)), doDzis(ymd(new Date(rokQ, q * 3 + 3, 0)))],
+    [`Rok ${rok}`, `${rok}-01-01`, doDzis(`${rok}-12-31`)]
+  ];
+}
 function htmlWyniki() {
-  const t = dzis(), od7 = plusDni(t, -6);
+  const t = dzis();
+  const okresy = okresyWynikow();
   const osoby = [null, S.me.id].concat(ROLE_GRUPY.map(([r]) => aktywni().filter((p) => p.rola === r && p.id !== S.me.id).map((p) => p.id)).flat());
-  const kom = (w) => (w.plan ? `<b class="${w.procent >= 80 ? 'green' : w.procent < 50 ? 'red' : ''}">${w.procent}%</b><small>${w.zrobione}/${w.plan}</small>` : '<b class="muted">–</b><small>brak planu</small>');
+  const kom = (w) => (w.plan ? `<b class="${w.procent >= 80 ? 'green' : w.procent < 50 ? 'red' : ''}">${w.procent}%</b><small>${w.zrobione}/${w.plan}</small>` : '<b class="muted">–</b><small>brak</small>');
   const pasek = (w) => `<span class="mini-bar"><i style="width:${w.procent || 0}%"></i></span>`;
+  const rokTeraz = new Date().getFullYear();
+  const lata = [rokTeraz - 2, rokTeraz - 1, rokTeraz];
+  const qTeraz = S.wynKwartal != null ? S.wynKwartal : Math.floor(new Date().getMonth() / 3);
+  const wybory = `<div class="wyniki-wybor">
+      <label>Miesiąc <input type="month" data-wyn-miesiac value="${S.wynMiesiac || t.slice(0, 7)}" max="${t.slice(0, 7)}"></label>
+      <label>Kwartał <select data-wyn-kwartal>${[0, 1, 2, 3].map((q) => `<option value="${q}"${qTeraz === q ? ' selected' : ''}>${RZYMSKIE[q]}</option>`).join('')}</select>
+        <select data-wyn-kwartal-rok>${lata.map((y) => `<option${(S.wynKwartalRok || rokTeraz) === y ? ' selected' : ''}>${y}</option>`).join('')}</select></label>
+      <label>Rok <select data-wyn-rok>${lata.map((y) => `<option${(S.wynRok || rokTeraz) === y ? ' selected' : ''}>${y}</option>`).join('')}</select></label>
+    </div>`;
   return `<div class="card wyniki"><div class="card-title">Wykonanie planu (zadania z terminem)</div>
-    <div class="wynik-row head"><span></span><span>dziś</span><span>7 dni</span></div>
+    ${wybory}
+    <div class="wyniki-scroll">
+    <div class="wynik-row head"><span></span>${okresy.map(([n]) => `<span>${esc(n)}</span>`).join('')}</div>
     ${osoby.map((id) => {
-      const wd = wynikOkresu(t, t, id), w7 = wynikOkresu(od7, t, id);
       const nazwa = id ? `${avatar(id, true)} ${esc(osoba(id).imie)}${id === S.me.id ? ' (ja)' : ''} <small>${esc(ROLE[osoba(id).rola] || '')}</small>` : '👥 <b>Cały zespół</b>';
       return `<button class="wynik-row${id ? '' : ' razem'}" data-podsum="${t}" data-podsum-osoba="${id || ''}">
-        <span class="wynik-kto">${nazwa}</span><span class="wynik-pct">${kom(wd)}${pasek(wd)}</span><span class="wynik-pct">${kom(w7)}${pasek(w7)}</span></button>`;
+        <span class="wynik-kto">${nazwa}</span>${okresy.map(([, od, doD]) => { const w = wynikOkresu(od, doD, id); return `<span class="wynik-pct">${kom(w)}${pasek(w)}</span>`; }).join('')}</button>`;
     }).join('')}
-    <p class="hint">Kliknij wiersz: pełne podsumowanie dnia z listą tego, co nie zostało zrobione.</p></div>`;
+    </div>
+    <p class="hint">Procent = zrobione z zaplanowanych do dziś (zadania z przyszłych dni nie zaniżają wyniku). Kliknij wiersz, żeby zobaczyć podsumowanie dnia tej osoby.</p></div>`;
 }
 function pokazPodsumowanie(d, osobaId) {
   // konkretna osoba z panelu; bez wskazania: menedżer widzi zespół, reszta siebie
@@ -1262,7 +1412,7 @@ function dodajDoGoogle(id) {
 }
 function odrysuj() {
   const e = biezacy();
-  if (e === 'main') renderMain(); else if (e === 'detail') renderSzczegoly(); else if (e === 'lista') renderLista();
+  if (e === 'main') renderMain(); else if (e === 'detail') renderSzczegoly(); else if (e === 'lista') renderLista(); else if (e === 'dzien') renderDzien();
 }
 
 // ---------- SZCZEGÓŁY ZADANIA ----------
@@ -1484,9 +1634,34 @@ $('#osoby-filtr').addEventListener('click', (e) => {
   S.filtrOsoba = b.dataset.osoba;
   renderMain();
 });
+// wybór konkretnego miesiąca, kwartału, roku w Gantcie
+document.addEventListener('change', (e) => {
+  const wm = e.target.closest('[data-wyn-miesiac]');
+  if (wm && wm.value) { S.wynMiesiac = wm.value; renderMain(); return; }
+  const wk = e.target.closest('[data-wyn-kwartal]');
+  if (wk) { S.wynKwartal = Number(wk.value); renderMain(); return; }
+  const wkr = e.target.closest('[data-wyn-kwartal-rok]');
+  if (wkr) { S.wynKwartalRok = Number(wkr.value); renderMain(); return; }
+  const wr = e.target.closest('[data-wyn-rok]');
+  if (wr) { S.wynRok = Number(wr.value); renderMain(); return; }
+  const m = e.target.closest('[data-gantt-miesiac]');
+  if (m && m.value) { S.ganttKotwica = m.value + '-01'; renderMain(); return; }
+  const q = e.target.closest('[data-gantt-kwartal]');
+  if (q) { const y = parseYmd(okresGantta().od).getFullYear(); S.ganttKotwica = ymd(new Date(y, Number(q.value) * 3, 1)); renderMain(); return; }
+  const y = e.target.closest('[data-gantt-rok]');
+  if (y) { const k = parseYmd(S.ganttKotwica || dzis()); S.ganttKotwica = ymd(new Date(Number(y.value), k.getMonth(), 1)); renderMain(); }
+});
 $('#szukaj').addEventListener('input', (e) => { S.szukaj = e.target.value.trim(); renderMain(); });
 document.addEventListener('click', (e) => {
   if (Date.now() - ostatniePrzeciagniecie < 400) return; // puszczenie po przeciągnięciu to nie kliknięcie
+  const gd = e.target.closest('[data-gantt-dzien]');
+  if (gd) { S.ganttDzien = gd.dataset.ganttDzien; renderMain(); return; }
+  const od = e.target.closest('[data-okno-dzien]');
+  if (od) { otworzDzien(od.dataset.oknoDzien, true); return; }
+  const dn = e.target.closest('[data-dzien-nav]');
+  if (dn) { const n = Number(dn.dataset.dzienNav); S.dzien = n === 0 ? dzis() : plusDni(S.dzien || dzis(), n); renderDzien(); return; }
+  const dos = e.target.closest('[data-dzien-osoba]');
+  if (dos) { S.dzienOsoba = dos.dataset.dzienOsoba; renderDzien(); return; }
   const pl = e.target.closest('[data-planuj]');
   if (pl) { e.stopPropagation(); wybierzDate(pl.dataset.planuj); return; }
   const nd = e.target.closest('[data-na-dzien]');
@@ -1507,8 +1682,10 @@ document.addEventListener('click', (e) => {
   if (ol) { otworzListe(ol.dataset.otworzListe); return; }
   const nl = e.target.closest('[data-nowa-lista]');
   if (nl) { nowaLista(nl.dataset.nowaLista === 'szablon'); return; }
-  const go = e.target.closest('[data-gantt]');
-  if (go) { const n = Number(go.dataset.gantt); S.ganttOd = n === 0 ? null : plusDni(ganttStart(), n); renderMain(); return; }
+  const gn = e.target.closest('[data-gantt-nav]');
+  if (gn) { przesunGantt(Number(gn.dataset.ganttNav)); renderMain(); return; }
+  const gz = e.target.closest('[data-gantt-zakres]');
+  if (gz) { S.ganttZakres = gz.dataset.ganttZakres; if (gz.dataset.ganttZakres === 'dzien') { S.ganttKotwica = dzis(); S.ganttDzien = dzis(); } renderMain(); return; }
   const gp = e.target.closest('[data-gantt-osoba]');
   if (gp) { S.ganttOsoba = gp.dataset.ganttOsoba; renderMain(); return; }
   const kf = e.target.closest('[data-kfiltr]');
@@ -1634,6 +1811,12 @@ async function start() {
   history.replaceState({ e: 'main' }, '');
   renderMain();
   pokaz('main');
+  const par = new URLSearchParams(location.search);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(par.get('dzien') || '')) {
+    S.dzienOsoba = par.get('osoba') || '';
+    otworzDzien(par.get('dzien'));
+    return;
+  }
   sprawdzPodsumowanie(true);
 }
 
