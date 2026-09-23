@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#094d47">
+  <title>Zadania, RM Nieruchomości</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="stylesheet" href="style.css?v=3">
+</head>
+<body>
+
+<div class="app">
+
+  <header>
+    <div class="header-left">
+      <img src="logo.png" alt="RM Nieruchomości" class="header-logo">
+      <div class="subtitle" id="header-subtitle">Zadania</div>
+    </div>
+    <div class="header-right">
+      <button class="back" id="back-btn" style="display:none">← Wstecz</button>
+      <button class="icon-btn" id="settings-btn" style="display:none" aria-label="Ustawienia">⚙</button>
+    </div>
+  </header>
+
+  <div class="banner" id="banner" style="display:none"></div>
+
+  <!-- LOGOWANIE -->
+  <section class="screen" id="screen-login">
+    <div class="card login-card">
+      <div class="card-title">Zaloguj się</div>
+      <form id="login-form">
+        <label>E-mail
+          <input type="email" id="login-email" autocomplete="username" required>
+        </label>
+        <label>Hasło
+          <input type="password" id="login-pass" autocomplete="current-password" required>
+        </label>
+        <button type="submit" class="btn-primary wide" id="login-submit">Zaloguj</button>
+      </form>
+      <button class="link-btn" id="forgot-btn">Nie pamiętam hasła</button>
+      <p class="hint" id="login-msg"></p>
+    </div>
+    <div class="card" id="demo-card" style="display:none">
+      <div class="card-title">Tryb próbny</div>
+      <p class="hint">Baza jeszcze nie jest podłączona. Dane zapisują się tylko w tej przeglądarce. Wybierz, kim jesteś:</p>
+      <div class="chips" id="demo-users"></div>
+    </div>
+  </section>
+
+  <!-- NOWE HASŁO (po linku z maila) -->
+  <section class="screen" id="screen-haslo">
+    <div class="card">
+      <div class="card-title">Ustaw nowe hasło</div>
+      <form id="haslo-form">
+        <label>Nowe hasło (min. 8 znaków)
+          <input type="password" id="haslo-nowe" autocomplete="new-password" minlength="8" required>
+        </label>
+        <button type="submit" class="btn-primary wide">Zapisz hasło</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- GŁÓWNY -->
+  <section class="screen" id="screen-main">
+    <nav class="tabs" id="tabs"></nav>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="toolbar" id="toolbar">
+      <div class="chips chips-scroll" id="osoby-filtr"></div>
+      <input type="search" id="szukaj" placeholder="Szukaj: tytuł, oferta, opis">
+    </div>
+
+    <div id="view"></div>
+  </section>
+
+  <!-- SZCZEGÓŁY -->
+  <section class="screen" id="screen-detail">
+    <div id="detail"></div>
+  </section>
+
+  <!-- FORMULARZ -->
+  <section class="screen" id="screen-form">
+    <form id="task-form" autocomplete="off">
+      <div class="card">
+        <div class="card-title" id="form-title">Nowe zadanie</div>
+        <label>Co trzeba zrobić
+          <input type="text" id="f-tytul" maxlength="300" required placeholder="np. Zamówić wypis z KW, Królewiecka">
+        </label>
+        <div class="sub">Rodzaj</div>
+        <div class="chips" id="f-typ"></div>
+        <div class="sub">Lista</div>
+        <div class="chips" id="f-lista"></div>
+        <div class="sub">Priorytet</div>
+        <div class="chips" id="f-priorytet"></div>
+        <div class="sub">Dla kogo</div>
+        <div id="f-osoba"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Kiedy</div>
+        <div class="quick-dates" id="f-szybkie"></div>
+        <div class="row">
+          <label>Termin
+            <input type="date" id="f-termin">
+          </label>
+          <label>Godzina
+            <input type="time" id="f-godzina" step="900">
+          </label>
+        </div>
+        <label>Początek, gdy zadanie trwa kilka dni (opcjonalnie, do wykresu Gantta)
+          <input type="date" id="f-od">
+        </label>
+        <label class="checkbox">
+          <input type="checkbox" id="f-kalendarz"> <span><b>📅 Do Kalendarza Google</b><br><small id="f-kalendarz-opis">Po zapisaniu otworzy się gotowe wydarzenie w Twoim kalendarzu</small></span>
+        </label>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Szczegóły</div>
+        <label>Oferta lub klient (opcjonalnie)
+          <input type="text" id="f-oferta" maxlength="120" list="oferty-lista" placeholder="np. Królewiecka 186G">
+          <datalist id="oferty-lista"></datalist>
+        </label>
+        <div class="chips chips-history" id="f-oferty-chips"></div>
+        <label>Opis, instrukcja
+          <textarea id="f-opis" rows="4" maxlength="4000" placeholder="Co dokładnie, gdzie, do kogo dzwonić"></textarea>
+        </label>
+      </div>
+
+      <div class="savebar">
+        <button type="button" class="btn-ghost" id="f-anuluj">Anuluj</button>
+        <button type="submit" class="btn-primary" id="f-zapisz">Zapisz</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- JEDNA LISTA (zakładka jak w To Do) -->
+  <section class="screen" id="screen-lista">
+    <div id="lista"></div>
+  </section>
+
+  <!-- PODSUMOWANIE DNIA -->
+  <section class="screen" id="screen-podsumowanie">
+    <div id="podsum"></div>
+  </section>
+
+  <!-- PROCES KREDYTOWY -->
+  <section class="screen" id="screen-kredyt">
+    <form id="kredyt-form" autocomplete="off">
+      <div class="card">
+        <div class="card-title" id="k-tytul">Nowy klient kredytowy</div>
+        <label>Klient
+          <input type="text" id="k-klient" maxlength="120" required placeholder="np. Jan Kowalski">
+        </label>
+        <div class="row">
+          <label>Oferta
+            <input type="text" id="k-oferta" maxlength="120" list="oferty-lista" placeholder="np. Słoneczna 15B">
+          </label>
+          <label>Bank
+            <input type="text" id="k-bank" maxlength="80" list="banki-lista" placeholder="np. PKO BP">
+            <datalist id="banki-lista"></datalist>
+          </label>
+        </div>
+        <div class="sub">Doradca</div>
+        <div class="chips" id="k-doradca"></div>
+        <label>Notatka
+          <textarea id="k-notatka" rows="3" maxlength="4000" placeholder="Wkład własny, zdolność, co jeszcze brakuje"></textarea>
+        </label>
+      </div>
+      <div class="card" id="k-etapy-card">
+        <div class="card-title">Proces kredytowy <span id="k-postep"></span></div>
+        <div id="k-etapy"></div>
+        <div class="status-row k-status" id="k-status"></div>
+      </div>
+      <div class="savebar">
+        <button type="button" class="btn-ghost" id="k-usun" style="display:none">Usuń</button>
+        <button type="submit" class="btn-primary" id="k-zapisz">Zapisz</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- USTAWIENIA -->
+  <section class="screen" id="screen-settings">
+    <div class="card">
+      <div class="card-title">Mój profil</div>
+      <label>Imię (tak widzą Cię inni)
+        <input type="text" id="s-imie" maxlength="40">
+      </label>
+      <div class="sub">Mój kolor</div>
+      <div class="chips" id="s-kolor"></div>
+      <button class="btn-primary wide" id="s-zapisz">Zapisz profil</button>
+    </div>
+    <div class="card">
+      <div class="card-title">Zespół</div>
+      <div id="s-zespol"></div>
+      <p class="hint" id="s-zespol-hint"></p>
+    </div>
+    <div class="card">
+      <div class="card-title">Konto</div>
+      <p class="hint" id="s-konto"></p>
+      <button class="btn-danger wide" id="s-wyloguj">Wyloguj</button>
+    </div>
+    <p class="hint center">Zadania RM, wersja 1</p>
+  </section>
+
+</div>
+
+<button class="fab" id="fab" style="display:none" aria-label="Nowe zadanie">+</button>
+<div class="toast" id="toast"></div>
+
+<script src="config.js?v=1"></script>
+<script src="vendor/supabase.js"></script>
+<script src="app.js?v=3"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
+</script>
+</body>
+</html>
