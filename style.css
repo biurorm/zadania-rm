@@ -468,3 +468,12 @@ button.tag { border: 0; font-family: inherit; cursor: pointer; }
 .drag:active { cursor: grabbing; color: var(--brand); }
 .task.dragging { position: relative; z-index: 30; box-shadow: 0 10px 24px rgba(0,0,0,.18); opacity: .96; transition: none; }
 .przeciagam { user-select: none; }
+
+/* ===== grupy zwijane ===== */
+button.group-title.zwin {
+  display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: 0;
+  font-family: inherit; text-align: left; cursor: pointer; padding: 6px 2px;
+}
+button.group-title.zwin:hover { color: var(--brand); }
+.grupa.zwinieta button.group-title.zwin { border-bottom: 1px dashed var(--border); }
+.strzalka { display: inline-block; width: 14px; font-size: 13px; }

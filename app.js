@@ -352,6 +352,8 @@ const typ = (k) => TYPY.find((t) => t.k === k) || TYPY[0];
 const prio = (k) => PRIORYTETY.find((p) => p.k === Number(k)) || PRIORYTETY[2];
 const zakladki = () => ZAKLADKI[mojaRola()] || ZAKLADKI.agent;
 const lista = (id) => S.listy.find((l) => l.id === id);
+// zadania "robocze" = bez pozycji z szablonów (szablon to wzór, widać go tylko w zakładce Listy)
+const robocze = () => S.zadania.filter((z) => !(z.lista_id && lista(z.lista_id) && lista(z.lista_id).szablon));
 const etapyZrobione = (k) => ETAPY.filter((e) => k.etapy && k.etapy[e.k]).length;
 const nastepnyEtap = (k) => ETAPY.find((e) => !(k.etapy && k.etapy[e.k]));
 
@@ -472,10 +474,37 @@ function karta(z, opcje = {}) {
     ${avatar(z.przypisany)}
   </div>`;
 }
-function renderGrupy(lista, pusto) {
-  const g = grupuj(lista);
-  const html = Object.entries(g).filter(([, l]) => l.length).map(([n, l]) =>
-    `<div class="group-title${n === 'Zaległe' ? ' alert' : ''}">${n} · ${l.length}</div>` + l.map((z) => karta(z)).join('')).join('');
+// zwinięte grupy pamiętamy w przeglądarce; grupy list są domyślnie zwinięte
+let ZWINIETE = {};
+try { ZWINIETE = JSON.parse(localStorage.getItem('rm-zadania-zwiniete')) || {}; } catch (e) { ZWINIETE = {}; }
+const czyZwiniete = (klucz_, domyslnie) => (klucz_ in ZWINIETE ? ZWINIETE[klucz_] : domyslnie);
+function przelaczGrupe(klucz_, domyslnie) {
+  ZWINIETE[klucz_] = !czyZwiniete(klucz_, domyslnie);
+  try { localStorage.setItem('rm-zadania-zwiniete', JSON.stringify(ZWINIETE)); } catch (e) { /* brak */ }
+}
+function grupaHtml(klucz_, tytul, lista_, opcje = {}) {
+  const zw = czyZwiniete(klucz_, !!opcje.domyslnieZwinieta);
+  return `<div class="grupa${zw ? ' zwinieta' : ''}">
+    <button class="group-title zwin${opcje.alert ? ' alert' : ''}" data-zwin="${esc(klucz_)}" data-domyslnie="${opcje.domyslnieZwinieta ? 1 : 0}" aria-expanded="${!zw}">
+      <span class="strzalka">${zw ? '▸' : '▾'}</span> ${tytul} · ${lista_.length}</button>
+    ${zw ? '' : lista_.map((z) => karta(z, opcje.karta || {})).join('')}
+  </div>`;
+}
+function renderGrupy(zadania, pusto) {
+  // pozycje z list bez terminu idą pod swoją listę, reszta według dat
+  const naListach = {};
+  const reszta = [];
+  zadania.forEach((z) => {
+    const l = z.lista_id && lista(z.lista_id);
+    if (l && !z.termin) (naListach[l.id] = naListach[l.id] || []).push(z);
+    else reszta.push(z);
+  });
+  const g = grupuj(reszta);
+  let html = Object.entries(g).filter(([, l]) => l.length)
+    .map(([n, l]) => grupaHtml(S.widok + ':' + n, n, l, { alert: n === 'Zaległe' })).join('');
+  html += S.listy.filter((l) => naListach[l.id]).map((l) =>
+    grupaHtml(S.widok + ':lista:' + l.id, `${esc(l.ikona)} ${esc(l.nazwa)}`,
+      naListach[l.id].sort((a, b) => klucz(a) - klucz(b)), { domyslnieZwinieta: true, karta: { bezListy: true } })).join('');
   return html || `<div class="empty">${pusto}</div>`;
 }
 function statsHtml(pola) {
@@ -519,11 +548,11 @@ function renderMain() {
   if (S.widok === 'gantt') { v.innerHTML = htmlGantt(); return; }
   const moje = S.widok === 'moje';
   const kogo = (z) => (moje ? z.przypisany === S.me.id : !S.filtrOsoba || z.przypisany === S.filtrOsoba);
-  const zakres = S.zadania.filter(kogo).filter(pasuje);
+  const zakres = robocze().filter(kogo).filter(pasuje);
   renderStats(zakres);
   if (S.widok === 'kalendarz') { v.innerHTML = htmlKalendarz(zakres); return; }
   if (S.widok === 'zrobione') {
-    const zr = S.zadania.filter((z) => z.status === 'zrobione')
+    const zr = robocze().filter((z) => z.status === 'zrobione')
       .filter((z) => !S.filtrOsoba || z.zrobione_przez === S.filtrOsoba || z.przypisany === S.filtrOsoba)
       .filter(pasuje)
       .sort((a, b) => (b.zrobione_kiedy || '').localeCompare(a.zrobione_kiedy || ''));
@@ -549,10 +578,10 @@ function renderMain() {
 function htmlPanel() {
   const t = dzis();
   const tydzienTemu = plusDni(t, -6);
-  const otwarte = S.zadania.filter((z) => z.status !== 'zrobione');
+  const otwarte = robocze().filter((z) => z.status !== 'zrobione');
   const zalegle = otwarte.filter((z) => z.termin && z.termin < t);
   const pilne = otwarte.filter((z) => (z.priorytet || 3) === 1 && !(z.termin && z.termin < t));
-  const zrob7 = S.zadania.filter((z) => z.status === 'zrobione' && tsDzien(z.zrobione_kiedy) >= tydzienTemu);
+  const zrob7 = robocze().filter((z) => z.status === 'zrobione' && tsDzien(z.zrobione_kiedy) >= tydzienTemu);
   const kWToku = S.kredyty.filter((k) => k.status === 'w_toku');
   $('#stats').innerHTML = statsHtml([
     [zalegle.length, 'zaległe w zespole', true],
@@ -581,7 +610,7 @@ function htmlPanel() {
   }).join('');
 
   const etapyLicz = ETAPY.map((e) => ({ e, n: kWToku.filter((k) => (nastepnyEtap(k) || {}).k === e.k).length })).filter((x) => x.n);
-  const ostatnie = S.zadania.filter((z) => z.status === 'zrobione').sort((a, b) => (b.zrobione_kiedy || '').localeCompare(a.zrobione_kiedy || '')).slice(0, 6);
+  const ostatnie = robocze().filter((z) => z.status === 'zrobione').sort((a, b) => (b.zrobione_kiedy || '').localeCompare(a.zrobione_kiedy || '')).slice(0, 6);
 
   const dzisW = podsumowanieDnia(t, null);
   return `
@@ -722,7 +751,7 @@ function htmlListy() {
   const q = S.szukaj.toLowerCase();
   const zwykle = S.listy.filter((l) => !l.szablon).filter((l) => !q || l.nazwa.toLowerCase().includes(q));
   const szablony = S.listy.filter((l) => l.szablon);
-  const wynik = q ? S.zadania.filter((z) => z.lista_id).filter(pasuje) : [];
+  const wynik = q ? robocze().filter((z) => z.lista_id).filter(pasuje) : [];
   $('#stats').innerHTML = statsHtml([[zwykle.length, 'list'], [szablony.length, 'szablonów'], [S.zadania.filter((z) => z.lista_id && z.status !== 'zrobione').length, 'otwartych na listach']]);
   return `
     ${wynik.length ? `<div class="group-title">Znalezione na listach · ${wynik.length}</div>${wynik.map((z) => karta(z)).join('')}` : ''}
@@ -913,8 +942,8 @@ function htmlGantt() {
   const osobaFiltr = S.ganttOsoba;
   const dni = Array.from({ length: GANTT_DNI }, (_, i) => plusDni(od, i));
   const idx = (d) => Math.round((parseYmd(d) - parseYmd(od)) / 86400000);
-  const zakres = S.zadania.filter((z) => z.termin && (!osobaFiltr || z.przypisany === osobaFiltr));
-  const bezTerminu = S.zadania.filter((z) => !z.termin && z.status !== 'zrobione' && (!osobaFiltr || z.przypisany === osobaFiltr)).length;
+  const zakres = robocze().filter((z) => z.termin && (!osobaFiltr || z.przypisany === osobaFiltr));
+  const bezTerminu = robocze().filter((z) => !z.termin && z.status !== 'zrobione' && (!osobaFiltr || z.przypisany === osobaFiltr)).length;
   const pasek = (z) => {
     let start = z.od || tsDzien(z.utworzono) || z.termin;
     if (start > z.termin) start = z.termin;
@@ -968,10 +997,10 @@ function htmlGantt() {
 // plan dnia = zadania z terminem na ten dzień; wynik = ile z nich jest zrobionych
 function podsumowanieDnia(d, osobaId) {
   const moje = (z) => !osobaId || z.przypisany === osobaId;
-  const plan = S.zadania.filter((z) => z.termin === d && moje(z));
+  const plan = robocze().filter((z) => z.termin === d && moje(z));
   const zrobionePlan = plan.filter((z) => z.status === 'zrobione');
   const niezrobione = plan.filter((z) => z.status !== 'zrobione').sort(poPriorytecie);
-  const dodatkowe = S.zadania.filter((z) => z.status === 'zrobione' && tsDzien(z.zrobione_kiedy) === d && z.termin !== d && (!osobaId || z.zrobione_przez === osobaId || z.przypisany === osobaId));
+  const dodatkowe = robocze().filter((z) => z.status === 'zrobione' && tsDzien(z.zrobione_kiedy) === d && z.termin !== d && (!osobaId || z.zrobione_przez === osobaId || z.przypisany === osobaId));
   return { plan: plan.length, zrobionePlan: zrobionePlan.length, niezrobione, dodatkowe, procent: plan.length ? Math.round((zrobionePlan.length / plan.length) * 100) : 0 };
 }
 function pokazPodsumowanie(d) {
@@ -1314,6 +1343,8 @@ $('#osoby-filtr').addEventListener('click', (e) => {
 });
 $('#szukaj').addEventListener('input', (e) => { S.szukaj = e.target.value.trim(); renderMain(); });
 document.addEventListener('click', (e) => {
+  const zw = e.target.closest('[data-zwin]');
+  if (zw) { przelaczGrupe(zw.dataset.zwin, zw.dataset.domyslnie === '1'); odrysuj(); return; }
   const g = e.target.closest('[data-gcal]');
   if (g) { e.stopPropagation(); dodajDoGoogle(g.dataset.gcal); return; }
   const t = e.target.closest('[data-toggle]');
@@ -1392,7 +1423,7 @@ $('#s-zespol').addEventListener('click', async (e) => {
   if (!b) return;
   const p = osoba(u ? u.dataset.usunOsobe : pr.dataset.przywroc);
   if (u) {
-    const otwarte = S.zadania.filter((z) => z.przypisany === p.id && z.status !== 'zrobione').length;
+    const otwarte = robocze().filter((z) => z.przypisany === p.id && z.status !== 'zrobione').length;
     if (!confirm(`Usunąć ${p.imie} z zespołu? Straci dostęp od razu.${otwarte ? `\n\nMa ${otwarte} otwartych zadań. Przekaż je komuś w zakładce Wszystkie (filtr: ${p.imie}).` : ''}`)) return;
   }
   try {
