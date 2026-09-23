@@ -1,7 +1,7 @@
 // Service Worker, dzialanie offline
 // Strategia: najpierw siec (nowa wersja wchodzi od razu), bez zasiegu cache.
 // Tylko pliki aplikacji z tej samej domeny; zapytania do bazy (Supabase) omijaja cache.
-const CACHE = 'zadania-rm-v9';
+const CACHE = 'zadania-rm-v10';
 const FILES = ['./', './index.html', './style.css', './app.js', './config.js', './vendor/supabase.js', './manifest.json', './logo.png', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -24,4 +24,23 @@ self.addEventListener('fetch', (event) => {
       return resp;
     }).catch(() => caches.match(event.request, { ignoreSearch: true }).then(c => c || caches.match('./index.html')))
   );
+});
+
+// powiadomienia z serwera (nowe zadanie, przypomnienie, podsumowanie dnia)
+self.addEventListener('push', (event) => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch (e) { d = { tresc: event.data ? event.data.text() : '' }; }
+  event.waitUntil(self.registration.showNotification(d.tytul || 'Zadania RM', {
+    body: d.tresc || '', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: d.tag || undefined, data: { url: d.url || './' }
+  }));
+});
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = new URL((event.notification.data && event.notification.data.url) || './', self.location.href).href;
+  event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then((okna) => {
+    for (const o of okna) {
+      if (o.url.startsWith(self.registration.scope)) { o.focus(); return o.navigate ? o.navigate(url) : null; }
+    }
+    return clients.openWindow(url);
+  }));
 });

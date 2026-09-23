@@ -21,6 +21,9 @@ const PRIORYTETY = [
   { k: 3, n: 'Normalny', i: '⚪' },
   { k: 4, n: 'Niski', i: '🔵' }
 ];
+const POWTARZANIE = [['', 'Nie powtarzaj'], ['dzien', 'Codziennie'], ['dni_robocze', 'W dni robocze'], ['tydzien', 'Co tydzień'],
+  ['2tyg', 'Co 2 tygodnie'], ['miesiac', 'Co miesiąc'], ['kwartal', 'Co kwartał'], ['rok', 'Co rok']];
+const nazwaPowt = (k) => (POWTARZANIE.find(([x]) => x === k) || ['', ''])[1];
 const STATUSY = { otwarte: 'Do zrobienia', w_toku: 'W toku', zrobione: 'Zrobione' };
 const ROLE = { admin: 'Menedżer', asystentka: 'Asystentka', doradca: 'Doradca kredytowy', agent: 'Agent' };
 const ROLE_GRUPY = [['admin', 'Menedżer'], ['asystentka', 'Asystentka'], ['doradca', 'Doradca kredytowy'], ['agent', 'Agenci']];
@@ -213,6 +216,28 @@ function supabaseStore(cfg) {
       blad(error);
     },
     async zapiszProfil(p) { const { error } = await sb.from('profile').update(p).eq('id', userId); blad(error); },
+    async wyslijPlik(sciezka, blob, typ) {
+      const { error } = await sb.storage.from('zalaczniki').upload(sciezka, blob, { contentType: typ, upsert: false });
+      blad(error);
+    },
+    async linkPliku(sciezka) {
+      const { data, error } = await sb.storage.from('zalaczniki').createSignedUrl(sciezka, 3600);
+      blad(error); return data.signedUrl;
+    },
+    async usunPlik(sciezka) { const { error } = await sb.storage.from('zalaczniki').remove([sciezka]); blad(error); },
+    async zapiszSubskrypcje(x) { const { error } = await sb.from('subskrypcje').upsert(x, { onConflict: 'endpoint' }); blad(error); },
+    async mojeSubskrypcje() { const { data } = await sb.from('subskrypcje').select('endpoint,urzadzenie').eq('uzytkownik', userId); return data || []; },
+    async usunSubskrypcje(endpoint) { await sb.from('subskrypcje').delete().eq('endpoint', endpoint); },
+    async testPush() {
+      const { data } = await sb.auth.getSession();
+      const r = await fetch(cfg.supabaseUrl + '/functions/v1/powiadomienia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + data.session.access_token, apikey: cfg.supabaseKey },
+        body: JSON.stringify({ typ: 'test' })
+      });
+      if (!r.ok) throw new Error('serwer powiadomień odpowiada ' + r.status + (r.status === 404 ? ' (funkcja jeszcze niewdrożona)' : ''));
+      return r.json();
+    },
     async adminOsoba(id, aktywny, rola) {
       const { error } = await sb.rpc('admin_osoba', { p_id: id, p_aktywny: aktywny, p_rola: rola });
       blad(error);
@@ -324,6 +349,16 @@ function demoStore() {
       zapisz(db);
     },
     async zapiszProfil(p) { db = wczytaj(); Object.assign(db.profile.find((x) => x.id === userId), p); zapisz(db); },
+    async wyslijPlik(sciezka, blob) {
+      const url = await new Promise((ok) => { const f = new FileReader(); f.onload = () => ok(f.result); f.readAsDataURL(blob); });
+      db = wczytaj(); db.pliki = db.pliki || {}; db.pliki[sciezka] = url; zapisz(db);
+    },
+    async linkPliku(sciezka) { return (wczytaj().pliki || {})[sciezka]; },
+    async usunPlik(sciezka) { db = wczytaj(); if (db.pliki) delete db.pliki[sciezka]; zapisz(db); },
+    async zapiszSubskrypcje() { throw new Error('W trybie próbnym powiadomienia nie działają'); },
+    async mojeSubskrypcje() { return []; },
+    async usunSubskrypcje() { /* brak */ },
+    async testPush() { throw new Error('W trybie próbnym powiadomienia nie działają'); },
     async adminOsoba(id, aktywny, r) {
       if (rola() !== 'admin') throw new Error('Tylko menedżer');
       if (id === userId && (!aktywny || r !== 'admin')) throw new Error('Nie możesz odebrać dostępu samemu sobie');
@@ -473,6 +508,8 @@ function karta(z, opcje = {}) {
   if (!zrobione && p <= 2) meta.push(`<span class="tag p${p}">${prio(p).n.toLowerCase()}</span>`);
   if (z.status === 'w_toku') meta.push('<span class="tag wtoku">w toku</span>');
   if (z.oferta) meta.push(`<span class="tag">${esc(z.oferta)}</span>`);
+  if (z.powtarzanie) meta.push(`<span class="tag" title="${esc(nazwaPowt(z.powtarzanie))}">🔁 ${esc(nazwaPowt(z.powtarzanie).toLowerCase())}</span>`);
+  if ((z.zalaczniki || []).length) meta.push(`<span class="tag">📎 ${z.zalaczniki.length}</span>`);
   if (z.lista_id && !opcje.bezListy && lista(z.lista_id)) meta.push(`<span class="tag lista">${esc(lista(z.lista_id).ikona)} ${esc(lista(z.lista_id).nazwa)}</span>`);
   if (!zrobione && z.kalendarz && z.termin) {
     meta.push(z.w_kalendarzu ? '<span class="tag gcal-ok" title="Dodane do Kalendarza Google">📅 w kalendarzu</span>'
@@ -1393,15 +1430,56 @@ async function zmienZadanie(id, zmiana, wpis, poZapisie) {
   }
   odswiez();
 }
+function nastepnyTermin(d, t) {
+  if (t === 'dzien') return plusDni(d, 1);
+  if (t === 'dni_robocze') { let n = plusDni(d, 1); while ([0, 6].includes(parseYmd(n).getDay())) n = plusDni(n, 1); return n; }
+  if (t === 'tydzien') return plusDni(d, 7);
+  if (t === '2tyg') return plusDni(d, 14);
+  const mies = { miesiac: 1, kwartal: 3, rok: 12 }[t];
+  if (!mies) return null;
+  const x = parseYmd(d);
+  const cel = new Date(x.getFullYear(), x.getMonth() + mies, 1);
+  const ostatni = new Date(cel.getFullYear(), cel.getMonth() + 1, 0).getDate();
+  return ymd(new Date(cel.getFullYear(), cel.getMonth(), Math.min(x.getDate(), ostatni)));
+}
+let ostatniaPowtorka = null; // { zrodlo, nowa } do cofnięcia razem z odhaczeniem
+async function utworzPowtorke(z) {
+  if (!z.powtarzanie || !z.termin) return;
+  const nt = nastepnyTermin(z.termin, z.powtarzanie);
+  if (!nt) return;
+  const seria = z.seria || z.id;
+  if (S.zadania.some((x) => x.id !== z.id && (x.seria === seria || x.id === seria) && x.termin === nt)) return;
+  const nowe = {
+    id: uuid(), tytul: z.tytul, opis: z.opis || '', typ: z.typ, przypisany: z.przypisany, termin: nt, godzina: z.godzina || null,
+    priorytet: z.priorytet || 3, oferta: z.oferta || '', status: 'otwarte', utworzyl: S.me.id, lista_id: z.lista_id || null,
+    kalendarz: !!z.kalendarz, w_kalendarzu: false, powtarzanie: z.powtarzanie, seria, zmieniono: new Date().toISOString()
+  };
+  if (z.kolejnosc != null) nowe.kolejnosc = z.kolejnosc;
+  try {
+    const w = await store.zapiszZadanie(nowe, true, [`Powtórka (${nazwaPowt(z.powtarzanie).toLowerCase()}) po zrobieniu z ${nazwaDnia(z.termin)}`]);
+    if (!S.zadania.some((x) => x.id === w.id)) S.zadania.push(w);
+    ostatniaPowtorka = { zrodlo: z.id, nowa: w.id };
+    toast(`🔁 Następne: ${nazwaDnia(nt)}`, 'Cofnij', () => ustawStatus(z.id, 'otwarte'));
+  } catch (e) { toast('Nie utworzono powtórki: ' + e.message); }
+}
 function ustawStatus(id, status) {
   const z = S.zadania.find((x) => x.id === id);
   if (!z || z.status === status) return;
   const stary = z.status;
+  // cofnięcie odhaczenia usuwa świeżo utworzoną powtórkę
+  if (stary === 'zrobione' && ostatniaPowtorka && ostatniaPowtorka.zrodlo === id) {
+    const n = ostatniaPowtorka.nowa; ostatniaPowtorka = null;
+    store.usunZadanie(n).then(() => { S.zadania = S.zadania.filter((x) => x.id !== n); odrysuj(); }).catch(() => {});
+  }
   const zmiana = { status };
   if (status === 'zrobione') { zmiana.zrobione_przez = S.me.id; zmiana.zrobione_kiedy = new Date().toISOString(); }
   else { zmiana.zrobione_przez = null; zmiana.zrobione_kiedy = null; }
   zmienZadanie(id, zmiana, `Status: ${STATUSY[stary]} → ${STATUSY[status]}`,
-    () => { if (status === 'zrobione') toast('Zrobione ✓', 'Cofnij', () => ustawStatus(id, stary)); });
+    () => {
+      if (status !== 'zrobione') return;
+      if (z.powtarzanie && z.termin) utworzPowtorke(z);
+      else toast('Zrobione ✓', 'Cofnij', () => ustawStatus(id, stary));
+    });
 }
 function dodajDoGoogle(id) {
   const z = S.zadania.find((x) => x.id === id);
@@ -1434,6 +1512,7 @@ function renderSzczegoly() {
     ['Dla kogo', `${avatar(z.przypisany, true)} ${esc(osoba(z.przypisany).imie)}`],
     ['Termin', esc(z.termin ? nazwaDnia(z.termin) + (z.godzina ? ', ' + hhmm(z.godzina) : '') : 'bez terminu')],
     z.oferta ? ['Oferta', esc(z.oferta)] : null,
+    z.powtarzanie ? ['Powtarzanie', `🔁 ${esc(nazwaPowt(z.powtarzanie))}`] : null,
     z.kalendarz ? ['Kalendarz', z.w_kalendarzu ? '📅 dodane do Kalendarza Google' : '📅 do dodania przez: ' + esc(osoba(z.przypisany).imie)] : null,
     ['Zlecił(a)', `${esc(osoba(z.utworzyl).imie)}, ${esc(kiedyTs(z.utworzono))}`],
     z.status === 'zrobione' ? ['Zrobione', `${esc(osoba(z.zrobione_przez).imie)}, ${esc(kiedyTs(z.zrobione_kiedy))}`] : null
@@ -1453,6 +1532,7 @@ function renderSzczegoly() {
     </div>
     ${z.termin ? `<button class="btn-gcal wide" data-gcal="${esc(z.id)}">📅 ${z.w_kalendarzu && z.przypisany === S.me.id ? 'Otwórz ponownie w Kalendarzu Google' : 'Dodaj do mojego Kalendarza Google'}</button>` : ''}
     <div class="card"><dl class="info">${info.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('')}</dl></div>
+    ${htmlZalaczniki(z)}
     ${z.opis ? `<div class="card"><div class="card-title">Opis</div><div class="opis">${esc(z.opis)}</div></div>` : ''}
     <div class="card">
       <div class="card-title">Historia i komentarze</div>
@@ -1465,6 +1545,10 @@ function renderSzczegoly() {
       ${moznaUsunac ? '<button class="btn-danger" id="d-usun">Usuń</button>' : ''}
     </div>`;
   el.querySelectorAll('.status-row button').forEach((b) => { b.onclick = () => ustawStatus(z.id, b.dataset.s); });
+  el.querySelectorAll('[data-zal-dodaj]').forEach((inp) => {
+    inp.onchange = () => { const pliki = [...inp.files]; inp.value = ''; if (pliki.length) dodajZalaczniki(z.id, pliki, inp.dataset.zalDodaj === 'skan'); };
+  });
+  zaladujMiniatury(el);
   $('#d-edytuj').onclick = () => otworzFormularz(z);
   if (moznaUsunac) $('#d-usun').onclick = async () => {
     if (!confirm('Usunąć to zadanie razem z historią?')) return;
@@ -1496,19 +1580,162 @@ function htmlWpisy(l) {
   return l.map((w) => `<li class="${esc(w.rodzaj)}">${avatar(w.autor, true)}<div><div class="kto">${esc(osoba(w.autor).imie)} · ${esc(kiedyTs(w.kiedy))}</div><div class="tresc">${esc(w.tresc)}</div></div></li>`).join('');
 }
 
+// ---------- ZAŁĄCZNIKI (zdjęcia, skany, PDF) ----------
+const linkiPlikow = new Map(); // ścieżka -> { url, do }
+async function linkPliku(sciezka) {
+  const c = linkiPlikow.get(sciezka);
+  if (c && c.do > Date.now()) return c.url;
+  const url = await store.linkPliku(sciezka);
+  linkiPlikow.set(sciezka, { url, do: Date.now() + 50 * 60000 });
+  return url;
+}
+function htmlZalaczniki(z) {
+  const l = z.zalaczniki || [];
+  return `<div class="card"><div class="card-title">Załączniki · ${l.length}</div>
+    ${l.length ? `<div class="zal-grid">${l.map((a, i) => `<div class="zal" data-zal-otworz="${esc(a.sciezka)}" title="${esc(a.nazwa)}">
+        ${(a.typ || '').startsWith('image/') ? `<img data-zal-img="${esc(a.sciezka)}" alt="${esc(a.nazwa)}">` : '<span class="zal-pdf">📄</span>'}
+        <small>${a.skan ? 'skan · ' : ''}${esc(a.nazwa)}</small>
+        ${a.kto === S.me.id || jestemAdminem() ? `<button class="zal-x" data-zal-usun="${i}" aria-label="Usuń załącznik">✕</button>` : ''}
+      </div>`).join('')}</div>` : '<p class="hint">Dodaj zdjęcie z telefonu, zeskanuj dokument aparatem albo dołącz PDF.</p>'}
+    <div class="zal-przyciski">
+      <label class="btn-ghost">📷 Zdjęcie<input type="file" accept="image/*" capture="environment" data-zal-dodaj="foto" hidden></label>
+      <label class="btn-ghost">📄 Skan dokumentu<input type="file" accept="image/*" capture="environment" data-zal-dodaj="skan" hidden></label>
+      <label class="btn-ghost">📎 Plik / PDF<input type="file" accept="image/*,application/pdf" multiple data-zal-dodaj="plik" hidden></label>
+    </div></div>`;
+}
+async function zaladujMiniatury(el) {
+  for (const img of el.querySelectorAll('[data-zal-img]')) {
+    try { img.src = await linkPliku(img.dataset.zalImg); } catch (e) { img.alt = 'brak podglądu'; }
+  }
+}
+// zdjęcie: zmniejszenie do 1800 px (oszczędza miejsce); skan: czarno-białe i kontrastowe, jak z kserokopiarki
+async function przygotujPlik(plik, skan) {
+  if (!(plik.type || '').startsWith('image/')) return { blob: plik, typ: plik.type || 'application/pdf', nazwa: plik.name || 'plik.pdf' };
+  try {
+    const img = await new Promise((ok, nie) => { const i = new Image(); i.onload = () => ok(i); i.onerror = nie; i.src = URL.createObjectURL(plik); });
+    const k = Math.min(1, 1800 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    const x = c.getContext('2d');
+    x.drawImage(img, 0, 0, c.width, c.height);
+    if (skan) {
+      const im = x.getImageData(0, 0, c.width, c.height), p = im.data;
+      for (let i = 0; i < p.length; i += 4) {
+        let g = 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2];
+        g = (g - 128) * 1.7 + 160;
+        p[i] = p[i + 1] = p[i + 2] = g < 0 ? 0 : g > 255 ? 255 : g;
+      }
+      x.putImageData(im, 0, 0);
+    }
+    const blob = await new Promise((ok) => c.toBlob(ok, 'image/jpeg', skan ? 0.85 : 0.82));
+    const nazwa = (skan ? 'skan-' : '') + (plik.name || 'zdjecie').replace(/\.[^.]+$/, '') + '.jpg';
+    return { blob, typ: 'image/jpeg', nazwa };
+  } catch (e) {
+    return { blob: plik, typ: plik.type, nazwa: plik.name || 'zdjecie' }; // np. HEIC na komputerze: wysyłamy oryginał
+  }
+}
+async function dodajZalaczniki(zid, pliki, skan) {
+  const z = S.zadania.find((x) => x.id === zid);
+  if (!z) return;
+  let ok = 0;
+  for (const f of pliki) {
+    toast(`Wysyłam ${f.name || 'zdjęcie'}…`);
+    try {
+      const p = await przygotujPlik(f, skan);
+      if (p.blob.size > 10 * 1024 * 1024) { toast(`${p.nazwa}: ponad 10 MB, za duży`); continue; }
+      const bezpieczna = p.nazwa.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').replace(/Ł/g, 'L').replace(/[^a-zA-Z0-9._-]+/g, '-').slice(-60);
+      const sciezka = `${zid}/${uuid()}-${bezpieczna}`;
+      await store.wyslijPlik(sciezka, p.blob, p.typ);
+      const meta = { sciezka, nazwa: p.nazwa, typ: p.typ, rozmiar: p.blob.size, kto: S.me.id, kiedy: new Date().toISOString(), skan: !!skan };
+      const lista_ = (z.zalaczniki || []).concat([meta]);
+      await store.zapiszZadanie({ id: zid, zalaczniki: lista_, zmieniono: new Date().toISOString() }, false, [`Dodano załącznik: ${p.nazwa}`]);
+      z.zalaczniki = lista_;
+      ok++;
+    } catch (e) { toast('Nie wysłano: ' + e.message); }
+  }
+  if (ok) toast(ok === 1 ? 'Załącznik dodany' : `Dodane załączniki: ${ok}`);
+  if (biezacy() === 'detail') renderSzczegoly();
+}
+async function usunZalacznik(zid, i) {
+  const z = S.zadania.find((x) => x.id === zid);
+  const a = z && (z.zalaczniki || [])[i];
+  if (!a || !confirm(`Usunąć załącznik „${a.nazwa}”?`)) return;
+  try {
+    await store.usunPlik(a.sciezka).catch(() => {});
+    const lista_ = z.zalaczniki.filter((_, j) => j !== i);
+    await store.zapiszZadanie({ id: zid, zalaczniki: lista_, zmieniono: new Date().toISOString() }, false, [`Usunięto załącznik: ${a.nazwa}`]);
+    z.zalaczniki = lista_;
+    renderSzczegoly();
+  } catch (e) { toast('Nie usunięto: ' + e.message); }
+}
+
+// ---------- POWIADOMIENIA NA TELEFON ----------
+function b64uNaBajty(t) {
+  const b = atob((t + '='.repeat((4 - (t.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(b, (c) => c.charCodeAt(0));
+}
+const jestIphone = () => /iPhone|iPad|iPod/.test(navigator.userAgent);
+const zainstalowana = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+function opisUrzadzenia() {
+  const u = navigator.userAgent;
+  const sys = /iPhone/.test(u) ? 'iPhone' : /iPad/.test(u) ? 'iPad' : /Android/.test(u) ? 'Android' : /Windows/.test(u) ? 'Windows' : /Mac/.test(u) ? 'Mac' : 'urządzenie';
+  const prz = /Edg\//.test(u) ? 'Edge' : /Chrome\//.test(u) ? 'Chrome' : /Safari\//.test(u) ? 'Safari' : /Firefox\//.test(u) ? 'Firefox' : '';
+  return `${sys}${prz ? ', ' + prz : ''}`;
+}
+async function mojaSubskrypcja() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+  const reg = await navigator.serviceWorker.getRegistration();
+  return reg ? reg.pushManager.getSubscription() : null;
+}
+async function wlaczPowiadomienia() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    throw new Error(jestIphone() && !zainstalowana()
+      ? 'Na iPhonie powiadomienia działają tylko w zainstalowanej aplikacji: Safari → Udostępnij → „Do ekranu początkowego”, potem otwórz Zadania RM z ikony i włącz tutaj.'
+      : 'Ta przeglądarka nie obsługuje powiadomień. Użyj Chrome, Edge albo Safari.');
+  }
+  if (!cfg.vapidPublic) throw new Error('Serwer powiadomień nie jest jeszcze skonfigurowany.');
+  const zgoda = await Notification.requestPermission();
+  if (zgoda !== 'granted') throw new Error('Brak zgody. Włącz powiadomienia dla tej aplikacji w ustawieniach telefonu albo przeglądarki.');
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uNaBajty(cfg.vapidPublic) });
+  const j = sub.toJSON();
+  await store.zapiszSubskrypcje({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, uzytkownik: S.me.id, urzadzenie: opisUrzadzenia() });
+}
+async function wylaczPowiadomienia() {
+  const sub = await mojaSubskrypcja();
+  if (sub) { await store.usunSubskrypcje(sub.endpoint); await sub.unsubscribe().catch(() => {}); }
+}
+async function rysujPowiadomienia() {
+  const info = $('#s-push-info');
+  if (!info) return;
+  const sub = await mojaSubskrypcja().catch(() => null);
+  const zgoda = 'Notification' in window ? Notification.permission : 'brak';
+  const inne = await store.mojeSubskrypcje().catch(() => []);
+  const tu = sub && zgoda === 'granted';
+  info.innerHTML = (tu ? '✅ <b>Włączone na tym urządzeniu.</b>' : zgoda === 'denied' ? '⛔ Zablokowane w ustawieniach telefonu albo przeglądarki. Odblokuj je tam i wróć tutaj.' : 'Wyłączone na tym urządzeniu.')
+    + (inne.length ? `<br>Twoje urządzenia z powiadomieniami: ${inne.map((x) => esc(x.urzadzenie || 'urządzenie')).join(', ')}` : '')
+    + '<br><small>Dostaniesz: nowe zadanie od kogoś, odhaczenie zleconego przez Ciebie, przypomnienie godzinę przed zadaniem z godziną, plan dnia o 7:30 i podsumowanie o 23:50.</small>'
+    + (jestIphone() && !zainstalowana() ? '<br><small>iPhone: najpierw dodaj aplikację do ekranu początkowego i otwórz ją z ikony.</small>' : '');
+  $('#s-push-wlacz').style.display = tu ? 'none' : '';
+  $('#s-push-test').style.display = tu ? '' : 'none';
+  $('#s-push-wylacz').style.display = tu ? '' : 'none';
+}
+
 // ---------- FORMULARZ ZADANIA ----------
 function otworzFormularz(z, preset = {}) {
   S.edycja = z || null;
   const f = z ? {
     tytul: z.tytul, typ: z.typ, przypisany: z.przypisany, termin: z.termin || '', godzina: hhmm(z.godzina),
-    priorytet: z.priorytet || 3, oferta: z.oferta || '', opis: z.opis || '', kalendarz: !!z.kalendarz, lista_id: z.lista_id || null, od: z.od || ''
-  } : Object.assign({ tytul: '', typ: 'zadanie', przypisany: S.me.id, termin: '', godzina: '', priorytet: 3, oferta: '', opis: '', kalendarz: false, lista_id: null, od: '' }, preset);
+    priorytet: z.priorytet || 3, oferta: z.oferta || '', opis: z.opis || '', kalendarz: !!z.kalendarz, lista_id: z.lista_id || null, od: z.od || '', powtarzanie: z.powtarzanie || ''
+  } : Object.assign({ tytul: '', typ: 'zadanie', przypisany: S.me.id, termin: '', godzina: '', priorytet: 3, oferta: '', opis: '', kalendarz: false, lista_id: null, od: '', powtarzanie: '' }, preset);
   S.form = f;
   $('#form-title').textContent = z ? 'Edycja zadania' : 'Nowe zadanie';
   $('#f-tytul').value = f.tytul;
   $('#f-termin').value = f.termin;
   $('#f-godzina').value = f.godzina;
   $('#f-od').value = f.od;
+  $('#f-powtarzanie').innerHTML = POWTARZANIE.map(([k, n]) => `<option value="${k}"${f.powtarzanie === k ? ' selected' : ''}>${n}</option>`).join('');
   $('#f-kalendarz').checked = f.kalendarz;
   $('#f-oferta').value = f.oferta;
   $('#f-opis').value = f.opis;
@@ -1545,6 +1772,8 @@ function rysujFormChipy() {
   $('#f-kalendarz').disabled = !maTermin;
   if (!maTermin) $('#f-kalendarz').checked = false;
   $('#f-od').max = $('#f-termin').value || '';
+  $('#f-powtarzanie').disabled = !$('#f-termin').value;
+  $('#f-powtarzanie-opis').textContent = $('#f-termin').value ? 'Po odhaczeniu od razu pojawi się następne, z kolejną datą' : 'Najpierw wybierz dzień';
   $('#f-kalendarz-opis').textContent = !maTermin ? 'Najpierw wybierz dzień'
     : f.przypisany === S.me.id ? 'Po zapisaniu otworzy się gotowe wydarzenie w Twoim kalendarzu'
       : `${osoba(f.przypisany).imie} zobaczy przycisk, który doda je do jej/jego kalendarza`;
@@ -1576,6 +1805,7 @@ $('#task-form').addEventListener('submit', async (e) => {
     kalendarz: $('#f-kalendarz').checked && !!$('#f-termin').value,
     lista_id: f.lista_id || null,
     od: $('#f-od').value || null,
+    powtarzanie: $('#f-termin').value ? $('#f-powtarzanie').value : '',
     zmieniono: new Date().toISOString()
   };
   if (!z.tytul) { toast('Wpisz, co trzeba zrobić'); return; }
@@ -1590,6 +1820,7 @@ $('#task-form').addEventListener('submit', async (e) => {
   if (otworzGoogle) { window.open(linkGoogle(z), '_blank', 'noopener'); z.w_kalendarzu = true; }
   if (!stare) {
     z.id = uuid();
+    if (z.powtarzanie) z.seria = z.id;
     z.status = 'otwarte';
     z.utworzyl = S.me.id;
     wpisy.push(z.przypisany === S.me.id ? 'Utworzono zadanie' : `Zlecono: ${osoba(z.przypisany).imie}`);
@@ -1599,6 +1830,10 @@ $('#task-form').addEventListener('submit', async (e) => {
     const tStary = (stare.termin || '') + ' ' + hhmm(stare.godzina), tNowy = (z.termin || '') + ' ' + (z.godzina || '');
     if (tStary.trim() !== tNowy.trim()) wpisy.push(`Termin: ${nazwaDnia(stare.termin)} ${hhmm(stare.godzina)} → ${nazwaDnia(z.termin)} ${z.godzina || ''}`.replace(/\s+/g, ' ').trim());
     if ((stare.priorytet || 3) !== z.priorytet) wpisy.push(`Priorytet: ${prio(stare.priorytet).n} → ${prio(z.priorytet).n}`);
+    if ((stare.powtarzanie || '') !== z.powtarzanie) {
+      wpisy.push(`Powtarzanie: ${nazwaPowt(stare.powtarzanie || '')} → ${nazwaPowt(z.powtarzanie)}`);
+      if (z.powtarzanie && !stare.seria) z.seria = stare.id;
+    }
     if ((stare.lista_id || null) !== z.lista_id) wpisy.push(`Lista: ${stare.lista_id && lista(stare.lista_id) ? lista(stare.lista_id).nazwa : 'bez listy'} → ${z.lista_id && lista(z.lista_id) ? lista(z.lista_id).nazwa : 'bez listy'}`);
     if (stare.tytul !== z.tytul || (stare.opis || '') !== z.opis || (stare.oferta || '') !== z.oferta || stare.typ !== z.typ) wpisy.push('Poprawiono treść zadania');
   }
@@ -1654,6 +1889,10 @@ document.addEventListener('change', (e) => {
 $('#szukaj').addEventListener('input', (e) => { S.szukaj = e.target.value.trim(); renderMain(); });
 document.addEventListener('click', (e) => {
   if (Date.now() - ostatniePrzeciagniecie < 400) return; // puszczenie po przeciągnięciu to nie kliknięcie
+  const zu = e.target.closest('[data-zal-usun]');
+  if (zu) { e.stopPropagation(); usunZalacznik(S.otwarte, Number(zu.dataset.zalUsun)); return; }
+  const zo = e.target.closest('[data-zal-otworz]');
+  if (zo) { const okno = window.open('', '_blank'); linkPliku(zo.dataset.zalOtworz).then((u) => { if (okno) okno.location = u; else location.href = u; }).catch((er) => { if (okno) okno.close(); toast(er.message); }); return; }
   const gd = e.target.closest('[data-gantt-dzien]');
   if (gd) { S.ganttDzien = gd.dataset.ganttDzien; renderMain(); return; }
   const od = e.target.closest('[data-okno-dzien]');
@@ -1738,8 +1977,18 @@ function rysujUstawienia() {
   $('#s-zespol-hint').textContent = admin
     ? (store.demo ? 'Tryb próbny.' : 'Nową osobę dodajesz w Supabase: Authentication, Users, Add user. Po pierwszym logowaniu pojawi się tutaj, wtedy ustaw jej rolę.') + ' Usunięcie odbiera dostęp od razu, historia zadań zostaje.'
     : '';
+  rysujPowiadomienia();
   $('#s-konto').textContent = store.demo ? 'Tryb próbny, baza niepodłączona.' : 'Zalogowano jako ' + (S.me.email || '');
 }
+$('#s-push-wlacz').addEventListener('click', async () => {
+  try { await wlaczPowiadomienia(); toast('Powiadomienia włączone 🔔'); } catch (e) { toast(e.message); }
+  rysujPowiadomienia();
+});
+$('#s-push-test').addEventListener('click', async () => {
+  try { const r = await store.testPush(); toast(r && r.wyslano ? 'Wysłane, za chwilę przyjdzie' : 'Serwer nie znalazł Twojego urządzenia, włącz ponownie'); }
+  catch (e) { toast(e.message); }
+});
+$('#s-push-wylacz').addEventListener('click', async () => { await wylaczPowiadomienia(); toast('Wyłączone na tym urządzeniu'); rysujPowiadomienia(); });
 $('#s-kolor').addEventListener('click', (e) => { const b = e.target.closest('[data-kolor]'); if (b) { S.nowyKolor = b.dataset.kolor; rysujUstawienia(); } });
 $('#s-zespol').addEventListener('click', async (e) => {
   const u = e.target.closest('[data-usun-osobe]');
@@ -1812,6 +2061,7 @@ async function start() {
   renderMain();
   pokaz('main');
   const par = new URLSearchParams(location.search);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(par.get('podsumowanie') || '')) { pokazPodsumowanie(par.get('podsumowanie')); return; }
   if (/^\d{4}-\d{2}-\d{2}$/.test(par.get('dzien') || '')) {
     S.dzienOsoba = par.get('osoba') || '';
     otworzDzien(par.get('dzien'));

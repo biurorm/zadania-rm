@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="mobile-web-app-capable" content="yes">
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
 
@@ -117,6 +117,10 @@
         <label>Początek, gdy zadanie trwa kilka dni (opcjonalnie, do wykresu Gantta)
           <input type="date" id="f-od">
         </label>
+        <label>🔁 Powtarzaj
+          <select id="f-powtarzanie"></select>
+          <small class="hint" id="f-powtarzanie-opis"></small>
+        </label>
         <label class="checkbox">
           <input type="checkbox" id="f-kalendarz"> <span><b>📅 Do Kalendarza Google</b><br><small id="f-kalendarz-opis">Po zapisaniu otworzy się gotowe wydarzenie w Twoim kalendarzu</small></span>
         </label>
@@ -216,6 +220,15 @@
       <p class="hint" id="s-zespol-hint"></p>
     </div>
     <div class="card">
+      <div class="card-title">Powiadomienia na telefon</div>
+      <p class="hint" id="s-push-info"></p>
+      <button class="btn-primary wide" id="s-push-wlacz">🔔 Włącz powiadomienia na tym urządzeniu</button>
+      <div class="btn-row">
+        <button class="btn-ghost" id="s-push-test" style="display:none">Wyślij próbne</button>
+        <button class="btn-ghost" id="s-push-wylacz" style="display:none">Wyłącz tutaj</button>
+      </div>
+    </div>
+    <div class="card">
       <div class="card-title">Konto</div>
       <p class="hint" id="s-konto"></p>
       <button class="btn-danger wide" id="s-wyloguj">Wyloguj</button>
@@ -228,9 +241,9 @@
 <button class="fab" id="fab" style="display:none" aria-label="Nowe zadanie">+</button>
 <div class="toast" id="toast"></div>
 
-<script src="config.js?v=1"></script>
+<script src="config.js?v=2"></script>
 <script src="vendor/supabase.js"></script>
-<script src="app.js?v=9"></script>
+<script src="app.js?v=10"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
