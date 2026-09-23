@@ -1,7 +1,7 @@
 // Service Worker, dzialanie offline
 // Strategia: najpierw siec (nowa wersja wchodzi od razu), bez zasiegu cache.
 // Tylko pliki aplikacji z tej samej domeny; zapytania do bazy (Supabase) omijaja cache.
-const CACHE = 'zadania-rm-v7';
+const CACHE = 'zadania-rm-v8';
 const FILES = ['./', './index.html', './style.css', './app.js', './config.js', './vendor/supabase.js', './manifest.json', './logo.png', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -18,7 +18,7 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   if (new URL(event.request.url).origin !== self.location.origin) return;
   event.respondWith(
-    fetch(event.request).then(resp => {
+    fetch(event.request, { cache: 'no-cache' }).then(resp => {
       const clone = resp.clone();
       caches.open(CACHE).then(c => { try { c.put(event.request, clone); } catch (e) {} });
       return resp;

@@ -40,9 +40,9 @@ const WIDOKI = {
 };
 const ZAKLADKI = {
   admin: ['panel', 'moje', 'wszystkie', 'listy', 'kalendarz', 'gantt', 'kredyty', 'zrobione'],
-  asystentka: ['moje', 'wszystkie', 'listy', 'kalendarz', 'gantt', 'kredyty', 'zrobione'],
-  doradca: ['kredyty', 'moje', 'listy', 'kalendarz', 'gantt', 'zrobione'],
-  agent: ['moje', 'wszystkie', 'listy', 'kalendarz', 'gantt', 'kredyty', 'zrobione']
+  asystentka: ['moje', 'kalendarz', 'gantt', 'zrobione'],
+  doradca: ['kredyty'],
+  agent: ['moje', 'kalendarz', 'gantt', 'kredyty', 'zrobione']
 };
 const IKONY_LIST = ['📋', '🎬', '💰', '📄', '🏠', '📞', '🛠️', '⭐', '🧾', '📸'];
 const KOLORY = ['#094d47', '#2563eb', '#c2410c', '#7c3aed', '#be185d', '#0891b2', '#65a30d', '#b45309'];
@@ -174,6 +174,10 @@ function supabaseStore(cfg) {
     async zapiszZadanie(z, nowe, wpisy) {
       const zapytanie = (w) => (nowe ? sb.from('zadania').insert(w) : sb.from('zadania').update(w).eq('id', w.id)).select().single();
       let { data, error } = await zapytanie(z);
+      if (error && nowe && /row-level security|violates/i.test(error.message || '')) {
+        const { error: e3 } = await sb.from('zadania').insert(z); // bez odczytu zwrotnego
+        if (!e3) { data = Object.assign({ utworzono: new Date().toISOString() }, z); error = null; }
+      }
       if (error && /kolejnosc/.test(error.message || '') && 'kolejnosc' in z) {
         const bez = Object.assign({}, z); delete bez.kolejnosc; // kolumna jeszcze nie dodana w bazie
         ({ data, error } = await zapytanie(bez));
@@ -476,8 +480,30 @@ function karta(z, opcje = {}) {
       <div class="task-title">${typ(z.typ).i} ${esc(z.tytul)}</div>
       ${meta.length ? `<div class="task-meta">${meta.join('')}</div>` : ''}
     </div>
+    ${opcje.uchwyt && !zrobione ? `<button class="plan-btn" data-planuj="${esc(z.id)}" title="Zaplanuj na konkretny dzień">📅</button>` : ''}
     ${avatar(z.przypisany)}
   </div>`;
+}
+// przeniesienie zadania (np. pozycji z listy) na konkretny dzień; zostaje na liście, a w Moje wchodzi do swojego dnia
+function ustawDzien(id, termin) {
+  const z = S.zadania.find((x) => x.id === id);
+  if (!z || (z.termin || '') === (termin || '')) return;
+  zmienZadanie(id, { termin: termin || null, w_kalendarzu: false }, `Termin: ${nazwaDnia(z.termin)} → ${nazwaDnia(termin)}`,
+    () => toast(termin ? `Zaplanowane: ${nazwaDnia(termin)}` : 'Bez terminu'));
+}
+function wybierzDate(id) {
+  const z = S.zadania.find((x) => x.id === id);
+  const inp = document.createElement('input');
+  inp.type = 'date';
+  inp.value = (z && z.termin) || dzis();
+  inp.style.cssText = 'position:fixed;left:50%;top:40%;opacity:0;width:1px;height:1px';
+  document.body.appendChild(inp);
+  const sprzataj = () => setTimeout(() => inp.remove(), 500);
+  inp.addEventListener('change', () => { if (inp.value) ustawDzien(id, inp.value); sprzataj(); });
+  inp.addEventListener('blur', sprzataj);
+  try { if (inp.showPicker) { inp.showPicker(); return; } } catch (e) { /* stara przeglądarka */ }
+  inp.remove();
+  otworz(id); // bez okienka daty: szczegóły zadania mają przyciski dni
 }
 // zwinięte grupy pamiętamy w przeglądarce; grupy list są domyślnie zwinięte
 let ZWINIETE = {};
@@ -530,7 +556,7 @@ function renderStats(lista) {
 }
 function renderFiltrOsob() {
   const el = $('#osoby-filtr');
-  if (['moje', 'panel', 'kredyty', 'listy', 'gantt'].includes(S.widok)) { el.style.display = 'none'; return; }
+  if (!jestemAdminem() || ['moje', 'panel', 'kredyty', 'listy', 'gantt'].includes(S.widok)) { el.style.display = 'none'; return; }
   el.style.display = '';
   el.innerHTML = `<button class="chip${S.filtrOsoba ? '' : ' on'}" data-osoba="">Wszyscy</button>` +
     aktywni().map((p) => `<button class="chip${S.filtrOsoba === p.id ? ' on' : ''}" data-osoba="${esc(p.id)}">${avatar(p.id, true)} ${esc(p.imie)}</button>`).join('');
@@ -561,13 +587,14 @@ function renderMain() {
   if (S.widok === 'listy') { v.innerHTML = htmlListy(); return; }
   if (S.widok === 'gantt') { v.innerHTML = htmlGantt(); return; }
   const moje = S.widok === 'moje';
-  const kogo = (z) => (moje ? z.przypisany === S.me.id : !S.filtrOsoba || z.przypisany === S.filtrOsoba);
+  const tylkoJa = moje || !jestemAdminem();
+  const kogo = (z) => (tylkoJa ? z.przypisany === S.me.id : !S.filtrOsoba || z.przypisany === S.filtrOsoba);
   const zakres = robocze().filter(kogo).filter(pasuje);
   renderStats(zakres);
   if (S.widok === 'kalendarz') { v.innerHTML = htmlKalendarz(zakres); return; }
   if (S.widok === 'zrobione') {
     const zr = robocze().filter((z) => z.status === 'zrobione')
-      .filter((z) => !S.filtrOsoba || z.zrobione_przez === S.filtrOsoba || z.przypisany === S.filtrOsoba)
+      .filter((z) => (jestemAdminem() ? !S.filtrOsoba || z.zrobione_przez === S.filtrOsoba || z.przypisany === S.filtrOsoba : z.przypisany === S.me.id || z.zrobione_przez === S.me.id))
       .filter(pasuje)
       .sort((a, b) => (b.zrobione_kiedy || '').localeCompare(a.zrobione_kiedy || ''));
     // każdy dzień osobno: pełna data z dniem tygodnia i wynik planu tego dnia
@@ -1024,7 +1051,7 @@ const GANTT_DNI = 21;
 function ganttStart() { return S.ganttOd || plusDni(dzis(), -3); }
 function htmlGantt() {
   const od = ganttStart(), doD = plusDni(od, GANTT_DNI - 1), t = dzis();
-  if (S.ganttOsoba == null) S.ganttOsoba = S.me.id;
+  if (S.ganttOsoba == null || !jestemAdminem()) S.ganttOsoba = S.me.id;
   const osobaFiltr = S.ganttOsoba;
   const dni = Array.from({ length: GANTT_DNI }, (_, i) => plusDni(od, i));
   const idx = (d) => Math.round((parseYmd(d) - parseYmd(od)) / 86400000);
@@ -1057,7 +1084,7 @@ function htmlGantt() {
   }).join('');
   const dzisKol = idx(t);
   const linia = dzisKol >= 0 && dzisKol < GANTT_DNI ? `<div class="g-today" style="grid-column:${dzisKol + 2};grid-row:1 / ${Math.max(r, 3)}"></div>` : '';
-  const chipy = `<button class="chip${S.ganttOsoba === '' ? ' on' : ''}" data-gantt-osoba="">Cały zespół</button>` +
+  const chipy = !jestemAdminem() ? '' : `<button class="chip${S.ganttOsoba === '' ? ' on' : ''}" data-gantt-osoba="">Cały zespół</button>` +
     aktywni().map((p) => `<button class="chip${S.ganttOsoba === p.id ? ' on' : ''}" data-gantt-osoba="${esc(p.id)}">${avatar(p.id, true)} ${esc(p.id === S.me.id ? p.imie + ' (ja)' : p.imie)}</button>`).join('');
   const pOd = parseYmd(od), pDo = parseYmd(doD);
   $('#stats').innerHTML = statsHtml([
@@ -1147,7 +1174,7 @@ function pokazPodsumowanie(d, osobaId) {
 }
 // o 23:50 (gdy aplikacja jest otwarta) oraz przy pierwszym otwarciu następnego dnia
 function sprawdzPodsumowanie(przyStarcie) {
-  if (!S.me) return;
+  if (!S.me || !zakladki().includes('moje')) return;
   const teraz = new Date();
   const widziane = (d) => { try { return !!localStorage.getItem('rm-podsum-' + d); } catch (e) { return true; } };
   const kto = jestemAdminem() ? null : S.me.id;
@@ -1267,6 +1294,12 @@ function renderSzczegoly() {
       <div class="status-row">
         ${Object.entries(STATUSY).map(([k, n]) => `<button data-s="${k}" class="${z.status === k ? 'on' : ''}">${n}</button>`).join('')}
       </div>
+    </div>
+    <div class="card"><div class="card-title">Na który dzień</div>
+      <div class="quick-dates">${[['Dziś', dzis()], ['Jutro', plusDni(dzis(), 1)], ['Pojutrze', plusDni(dzis(), 2)], ['Poniedziałek', plusDni(dzis(), ((8 - new Date().getDay()) % 7) || 7)]]
+        .map(([n, d]) => `<button class="pill${z.termin === d ? ' on' : ''}" data-na-dzien="${d}" data-zadanie="${esc(z.id)}">${n}</button>`).join('')}
+        <button class="pill" data-planuj="${esc(z.id)}">📅 Wybierz datę</button>
+        ${z.termin ? `<button class="pill" data-na-dzien="" data-zadanie="${esc(z.id)}">Bez terminu</button>` : ''}</div>
     </div>
     ${z.termin ? `<button class="btn-gcal wide" data-gcal="${esc(z.id)}">📅 ${z.w_kalendarzu && z.przypisany === S.me.id ? 'Otwórz ponownie w Kalendarzu Google' : 'Dodaj do mojego Kalendarza Google'}</button>` : ''}
     <div class="card"><dl class="info">${info.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('')}</dl></div>
@@ -1423,8 +1456,10 @@ $('#task-form').addEventListener('submit', async (e) => {
   $('#f-zapisz').disabled = true;
   try {
     const zapisane = await store.zapiszZadanie(z, !stare, wpisy);
+    const niewidoczne = !jestemAdminem() && osoba(zapisane.przypisany).rola === 'admin' && zapisane.przypisany !== S.me.id;
     const i = S.zadania.findIndex((x) => x.id === zapisane.id);
-    if (i >= 0) S.zadania[i] = zapisane; else S.zadania.push(zapisane);
+    if (niewidoczne) { if (i >= 0) S.zadania.splice(i, 1); } // zlecone menedżerowi znika z widoku zlecającego
+    else if (i >= 0) S.zadania[i] = zapisane; else S.zadania.push(zapisane);
     toast(stare ? 'Zapisane' : (z.przypisany === S.me.id ? 'Dodane' : `Zlecone: ${osoba(z.przypisany).imie}`));
     wpisyZadania = { id: null, lista: [] };
     cofnij();
@@ -1452,6 +1487,10 @@ $('#osoby-filtr').addEventListener('click', (e) => {
 $('#szukaj').addEventListener('input', (e) => { S.szukaj = e.target.value.trim(); renderMain(); });
 document.addEventListener('click', (e) => {
   if (Date.now() - ostatniePrzeciagniecie < 400) return; // puszczenie po przeciągnięciu to nie kliknięcie
+  const pl = e.target.closest('[data-planuj]');
+  if (pl) { e.stopPropagation(); wybierzDate(pl.dataset.planuj); return; }
+  const nd = e.target.closest('[data-na-dzien]');
+  if (nd) { ustawDzien(nd.dataset.zadanie, nd.dataset.naDzien); return; }
   const zw = e.target.closest('[data-zwin]');
   if (zw) { przelaczGrupe(zw.dataset.zwin, zw.dataset.domyslnie === '1'); odrysuj(); return; }
   const g = e.target.closest('[data-gcal]');
