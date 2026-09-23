@@ -170,8 +170,12 @@ function supabaseStore(cfg) {
       blad(error); return data;
     },
     async zapiszZadanie(z, nowe, wpisy) {
-      const q = nowe ? sb.from('zadania').insert(z) : sb.from('zadania').update(z).eq('id', z.id);
-      const { data, error } = await q.select().single();
+      const zapytanie = (w) => (nowe ? sb.from('zadania').insert(w) : sb.from('zadania').update(w).eq('id', w.id)).select().single();
+      let { data, error } = await zapytanie(z);
+      if (error && /kolejnosc/.test(error.message || '') && 'kolejnosc' in z) {
+        const bez = Object.assign({}, z); delete bez.kolejnosc; // kolumna jeszcze nie dodana w bazie
+        ({ data, error } = await zapytanie(bez));
+      }
       blad(error);
       if (wpisy.length) {
         const { error: e2 } = await sb.from('wpisy').insert(wpisy.map((t) => ({ zadanie_id: data.id, rodzaj: 'zmiana', tresc: t })));
@@ -458,7 +462,8 @@ function karta(z, opcje = {}) {
     meta.push(z.w_kalendarzu ? '<span class="tag gcal-ok" title="Dodane do Kalendarza Google">📅 w kalendarzu</span>'
       : (z.przypisany === S.me.id ? `<button class="tag gcal" data-gcal="${esc(z.id)}">📅 dodaj do kalendarza</button>` : '<span class="tag gcal-czeka">📅 czeka na kalendarz</span>'));
   }
-  return `<div class="${kl}">
+  return `<div class="${kl}" data-id="${esc(z.id)}">
+    ${opcje.uchwyt ? '<span class="drag" data-drag="1" title="Przeciągnij, żeby zmienić kolejność">⠿</span>' : ''}
     <button class="check${zrobione ? ' on' : ''}" data-toggle="${esc(z.id)}" aria-label="${zrobione ? 'Przywróć' : 'Oznacz jako zrobione'}">${zrobione ? '✓' : ''}</button>
     <div class="task-body" data-open="${esc(z.id)}">
       <div class="task-title">${typ(z.typ).i} ${esc(z.tytul)}</div>
@@ -745,43 +750,49 @@ function otworzListe(id) {
   if (biezacy() !== 'lista') wejdz('lista');
   setTimeout(() => { const i = $('#l-szybko'); if (i && !('ontouchstart' in window)) i.focus(); }, 50);
 }
+// kolejność na liście: ręczna (przeciąganie); bez ustawionej kolejności liczy się moment dodania
+const klucz = (z) => (z.kolejnosc != null ? Number(z.kolejnosc) : (Date.parse(z.utworzono) || 0));
 function renderLista() {
   const l = lista(S.otwartaLista);
   const el = $('#lista');
-  if (!l) { el.innerHTML = '<div class="empty">Ta lista została usunięta.</div>'; return; }
+  if (!l) { el.innerHTML = '<div class="empty">Ta lista została usunięta.</div>'; el.dataset.lista = ''; return; }
+  // szkielet z polem dodawania budujemy raz na listę, żeby odświeżanie nie zabierało kursora
+  if (el.dataset.lista !== l.id) {
+    el.dataset.lista = l.id;
+    el.innerHTML = `
+      <div id="l-head"></div>
+      <form id="l-dodaj" class="quick-add"><input id="l-szybko" maxlength="300" placeholder="+ Dodaj pozycję i naciśnij Enter" autocomplete="off" enterkeyhint="done"><button class="btn-primary" type="submit">Dodaj</button></form>
+      <p class="hint">Enter dodaje pozycję, a pole zostaje gotowe na następną. Kolejność zmienisz, przeciągając uchwyt ⠿. Osobę, termin i priorytet ustawisz po kliknięciu pozycji.</p>
+      <div id="l-otwarte"></div>
+      <div id="l-zrobione"></div>
+      <div id="l-ustawienia"></div>`;
+    $('#l-dodaj').onsubmit = (e) => { e.preventDefault(); dodajNaListe(); };
+    wlaczPrzeciaganie($('#l-otwarte'));
+  }
   const moja = l.wlasciciel === S.me.id || jestemAdminem();
   const zad = S.zadania.filter((z) => z.lista_id === l.id);
-  const otwarte = zad.filter((z) => z.status !== 'zrobione').sort((a, b) => (a.priorytet || 3) - (b.priorytet || 3) || sortuj(a, b));
+  const otwarte = zad.filter((z) => z.status !== 'zrobione').sort((a, b) => klucz(a) - klucz(b));
   const zrobione = zad.filter((z) => z.status === 'zrobione').sort((a, b) => (b.zrobione_kiedy || '').localeCompare(a.zrobione_kiedy || ''));
   const proc = zad.length ? Math.round((zrobione.length / zad.length) * 100) : 0;
-  el.innerHTML = `
+  $('#l-head').innerHTML = `
     <div class="card">
       <div class="list-head"><span class="list-ico big">${esc(l.ikona)}</span><div><h1 class="detail-title">${esc(l.nazwa)}</h1>
       <small class="hint">${l.szablon ? 'Szablon' : 'Lista'} · ${l.wspolna ? 'wspólna dla zespołu' : 'prywatna'} · ${esc(osoba(l.wlasciciel).imie)}</small></div></div>
       ${!l.szablon && zad.length ? `<div class="bar"><i style="width:${proc}%"></i></div><small class="hint">${zrobione.length}/${zad.length} zrobione (${proc}%)</small>` : ''}
     </div>
-    ${l.szablon ? '<button class="btn-primary wide" id="l-uzyj">📑 Utwórz listę z tego szablonu</button><div class="spacer"></div>' : ''}
-    <form id="l-dodaj" class="quick-add"><input id="l-szybko" maxlength="300" placeholder="+ Dodaj pozycję i naciśnij Enter" autocomplete="off"><button class="btn-primary" type="submit">Dodaj</button></form>
-    <p class="hint">Osobę, termin i priorytet ustawisz po kliknięciu pozycji.</p>
-    ${otwarte.map((z) => karta(z, { bezListy: true })).join('') || '<div class="empty">Pusto. Dodaj pierwszą pozycję powyżej.</div>'}
-    ${zrobione.length ? `<div class="group-title">Zrobione · ${zrobione.length}</div>${zrobione.map((z) => karta(z, { zrobione: true, bezListy: true })).join('')}` : ''}
-    ${moja ? `<div class="card"><div class="card-title">Ustawienia listy</div>
+    ${l.szablon ? '<button class="btn-primary wide" id="l-uzyj">📑 Utwórz listę z tego szablonu</button><div class="spacer"></div>' : ''}`;
+  if (!$('#l-otwarte').classList.contains('przeciagam')) {
+    $('#l-otwarte').innerHTML = otwarte.map((z) => karta(z, { bezListy: true, uchwyt: true })).join('') || '<div class="empty">Pusto. Dodaj pierwszą pozycję powyżej.</div>';
+  }
+  $('#l-zrobione').innerHTML = zrobione.length ? `<div class="group-title">Zrobione · ${zrobione.length}</div>${zrobione.map((z) => karta(z, { zrobione: true, bezListy: true })).join('')}` : '';
+  $('#l-ustawienia').innerHTML = moja ? `<div class="card"><div class="card-title">Ustawienia listy</div>
       <div class="sub">Ikona</div><div class="chips" id="l-ikony">${IKONY_LIST.map((i) => `<button type="button" class="chip${l.ikona === i ? ' on' : ''}" data-ikona="${i}">${i}</button>`).join('')}</div>
       <div class="btn-row wrap">
         <button class="btn-ghost" id="l-nazwa">Zmień nazwę</button>
         <button class="btn-ghost" id="l-wspolna">${l.wspolna ? 'Zrób prywatną' : 'Udostępnij zespołowi'}</button>
         <button class="btn-ghost" id="l-szablon">${l.szablon ? 'Zamień w zwykłą listę' : 'Zapisz jako szablon'}</button>
         <button class="btn-danger" id="l-usun">Usuń listę</button>
-      </div></div>` : ''}`;
-  $('#l-dodaj').onsubmit = async (e) => {
-    e.preventDefault();
-    const t = $('#l-szybko').value.trim();
-    if (!t) return;
-    $('#l-szybko').value = '';
-    const z = { id: uuid(), tytul: t, typ: 'zadanie', przypisany: S.me.id, priorytet: 3, oferta: '', opis: '', status: 'otwarte', utworzyl: S.me.id, lista_id: l.id, kalendarz: false, w_kalendarzu: false, zmieniono: new Date().toISOString() };
-    try { const w = await store.zapiszZadanie(z, true, [`Dodano na listę: ${l.nazwa}`]); S.zadania.push(w); renderLista(); $('#l-szybko').focus(); }
-    catch (err) { toast('Nie zapisano: ' + err.message); }
-  };
+      </div></div>` : '';
   const zmien = async (zm) => {
     try { const w = await store.zapiszListe(Object.assign({ id: l.id }, zm), false); Object.assign(l, w); renderLista(); }
     catch (err) { toast(err.message); }
@@ -798,6 +809,82 @@ function renderLista() {
     catch (err) { toast(err.message); }
   };
 }
+// seryjne dodawanie: pole czyści się od razu i zostaje aktywne, pozycja pojawia się bez czekania na bazę
+async function dodajNaListe() {
+  const l = lista(S.otwartaLista);
+  const pole = $('#l-szybko');
+  const t = pole.value.trim();
+  if (!l || !t) return;
+  pole.value = '';
+  pole.focus();
+  const z = { id: uuid(), tytul: t, typ: 'zadanie', przypisany: S.me.id, priorytet: 3, oferta: '', opis: '', status: 'otwarte', utworzyl: S.me.id, lista_id: l.id, kalendarz: false, w_kalendarzu: false, kolejnosc: Date.now(), utworzono: new Date().toISOString(), zmieniono: new Date().toISOString() };
+  S.zadania.push(z);
+  renderLista();
+  try {
+    const w = await store.zapiszZadanie(Object.assign({}, z), true, [`Dodano na listę: ${l.nazwa}`]);
+    Object.assign(z, w);
+  } catch (err) {
+    S.zadania = S.zadania.filter((x) => x.id !== z.id);
+    renderLista();
+    if (!pole.value) pole.value = t;
+    toast('Nie zapisano: ' + err.message);
+  }
+}
+// przeciąganie za uchwyt ⠿ (palec albo mysz); zapisuje tylko przesuniętą pozycję
+function wlaczPrzeciaganie(kontener) {
+  kontener.addEventListener('pointerdown', (e) => {
+    const h = e.target.closest('[data-drag]');
+    if (!h) return;
+    e.preventDefault();
+    const el = h.closest('.task');
+    let startY = e.clientY;
+    const startScroll = window.scrollY;
+    kontener.classList.add('przeciagam');
+    el.classList.add('dragging');
+    try { h.setPointerCapture(e.pointerId); } catch (err) { /* stare przeglądarki */ }
+    const przesun = (ev) => {
+      if (ev.clientY < 90) window.scrollBy(0, -12);
+      else if (ev.clientY > window.innerHeight - 90) window.scrollBy(0, 12);
+      const top = el.offsetTop;
+      const prev = el.previousElementSibling, next = el.nextElementSibling;
+      if (prev && prev.dataset.id) {
+        const r = prev.getBoundingClientRect();
+        if (ev.clientY < r.top + r.height / 2) kontener.insertBefore(el, prev);
+      }
+      if (next && next.dataset.id) {
+        const r = next.getBoundingClientRect();
+        if (ev.clientY > r.top + r.height / 2) kontener.insertBefore(el, next.nextElementSibling);
+      }
+      startY += el.offsetTop - top; // element zmienił miejsce w układzie, palec zostaje na nim
+      el.style.transform = `translateY(${ev.clientY - startY + (window.scrollY - startScroll)}px)`;
+    };
+    const koniec = async () => {
+      h.removeEventListener('pointermove', przesun);
+      h.removeEventListener('pointerup', koniec);
+      h.removeEventListener('pointercancel', koniec);
+      el.style.transform = '';
+      el.classList.remove('dragging');
+      kontener.classList.remove('przeciagam');
+      const id = el.dataset.id;
+      const z = S.zadania.find((x) => x.id === id);
+      const prevEl = el.previousElementSibling, nextEl = el.nextElementSibling;
+      const kp = prevEl && prevEl.dataset.id ? klucz(S.zadania.find((x) => x.id === prevEl.dataset.id) || {}) : null;
+      const kn = nextEl && nextEl.dataset.id ? klucz(S.zadania.find((x) => x.id === nextEl.dataset.id) || {}) : null;
+      let nowy;
+      if (kp != null && kn != null) nowy = (kp + kn) / 2;
+      else if (kp != null) nowy = kp + 1000;
+      else if (kn != null) nowy = kn - 1000;
+      else return;
+      if (!z || nowy === klucz(z)) return;
+      z.kolejnosc = nowy;
+      try { await store.zapiszZadanie({ id, kolejnosc: nowy, zmieniono: new Date().toISOString() }, false, []); }
+      catch (err) { toast('Nie zapisano kolejności: ' + err.message); }
+    };
+    h.addEventListener('pointermove', przesun);
+    h.addEventListener('pointerup', koniec);
+    h.addEventListener('pointercancel', koniec);
+  });
+}
 async function uzyjSzablonu(szablon) {
   const d = new Date();
   const baza = szablon.nazwa.replace(/^szablon\s*[,:\-–]?\s*/i, '').trim() || szablon.nazwa;
@@ -806,9 +893,10 @@ async function uzyjSzablonu(szablon) {
   try {
     const nowa = await store.zapiszListe({ id: uuid(), nazwa: nazwa.slice(0, 80), ikona: szablon.ikona, wspolna: szablon.wspolna, szablon: false, wlasciciel: S.me.id }, true);
     S.listy.push(nowa);
-    const pozycje = S.zadania.filter((z) => z.lista_id === szablon.id);
-    for (const p of pozycje) {
-      const z = { id: uuid(), tytul: p.tytul, typ: p.typ, przypisany: aktywni().some((o) => o.id === p.przypisany) ? p.przypisany : S.me.id, priorytet: p.priorytet || 3, oferta: p.oferta || '', opis: p.opis || '', status: 'otwarte', utworzyl: S.me.id, lista_id: nowa.id, kalendarz: false, w_kalendarzu: false, zmieniono: new Date().toISOString() };
+    const pozycje = S.zadania.filter((z) => z.lista_id === szablon.id && z.status !== 'zrobione').sort((x, y) => klucz(x) - klucz(y));
+    const baza0 = Date.now();
+    for (const [i, p] of pozycje.entries()) {
+      const z = { id: uuid(), kolejnosc: baza0 + i * 1000, tytul: p.tytul, typ: p.typ, przypisany: aktywni().some((o) => o.id === p.przypisany) ? p.przypisany : S.me.id, priorytet: p.priorytet || 3, oferta: p.oferta || '', opis: p.opis || '', status: 'otwarte', utworzyl: S.me.id, lista_id: nowa.id, kalendarz: false, w_kalendarzu: false, zmieniono: new Date().toISOString() };
       S.zadania.push(await store.zapiszZadanie(z, true, [`Z szablonu: ${szablon.nazwa}`]));
     }
     toast(`Gotowe: ${pozycje.length} pozycji`);

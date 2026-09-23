@@ -459,3 +459,12 @@ button.tag { border: 0; font-family: inherit; cursor: pointer; }
   .gantt { --g-name: 240px; --g-day: 42px; }
   .g-bar { height: 22px; font-size: 12px; }
 }
+
+/* ===== listy: przeciąganie i seryjne dodawanie ===== */
+.drag {
+  flex: none; width: 22px; margin: -6px 0 -6px -4px; padding: 10px 0; text-align: center;
+  color: #a8a29e; font-size: 18px; line-height: 1; cursor: grab; touch-action: none; user-select: none;
+}
+.drag:active { cursor: grabbing; color: var(--brand); }
+.task.dragging { position: relative; z-index: 30; box-shadow: 0 10px 24px rgba(0,0,0,.18); opacity: .96; transition: none; }
+.przeciagam { user-select: none; }
