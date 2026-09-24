@@ -557,7 +557,7 @@ function przelaczGrupe(klucz_, domyslnie) {
 }
 function grupaHtml(klucz_, tytul, lista_, opcje = {}) {
   const zw = czyZwiniete(klucz_, !!opcje.domyslnieZwinieta);
-  return `<div class="grupa${zw ? ' zwinieta' : ''}"${opcje.listaId ? ` data-id="${esc(opcje.listaId)}"` : ''}>
+  return `<div class="grupa${zw ? ' zwinieta' : ''}"${opcje.listaId ? ` data-id="${esc(opcje.listaId)}"` : ''}${opcje.cel != null ? ` data-cel="${esc(opcje.cel)}" data-nazwa="${esc(opcje.celNazwa || '')}"` : ''}>
     <button class="group-title zwin${opcje.alert ? ' alert' : ''}" data-zwin="${esc(klucz_)}" data-domyslnie="${opcje.domyslnieZwinieta ? 1 : 0}" aria-expanded="${!zw}">
       ${opcje.listaId ? '<span class="drag" data-drag="1" title="Przeciągnij, żeby zmienić kolejność list">⠿</span>' : ''}<span class="strzalka">${zw ? '▸' : '▾'}</span> ${tytul} · ${lista_.length}</button>
     ${zw ? '' : lista_.map((z) => karta(z, opcje.karta || {})).join('')}
@@ -574,10 +574,12 @@ function renderGrupy(zadania, pusto) {
   });
   const g = grupuj(reszta);
   let html = Object.entries(g).filter(([, l]) => l.length)
-    .map(([n, l]) => grupaHtml(S.widok + ':' + n, n, l, { alert: n === 'Zaległe', karta: { uchwyt: true } })).join('');
+    .map(([n, l]) => grupaHtml(S.widok + ':' + n, n, l, { alert: n === 'Zaległe', karta: { uchwyt: true },
+      cel: n === 'Zaległe' ? 'zalegle' : n === 'Bez terminu' ? 'bez' : 'd:' + l[0].termin, celNazwa: n })).join('');
   html += S.listy.filter((l) => naListach[l.id]).sort((a, b) => kluczListy(a) - kluczListy(b)).map((l) =>
     grupaHtml(S.widok + ':lista:' + l.id, `${esc(l.ikona)} ${esc(l.nazwa)}`,
-      naListach[l.id].sort((a, b) => klucz(a) - klucz(b)), { domyslnieZwinieta: true, listaId: l.id, karta: { bezListy: true, uchwyt: true } })).join('');
+      naListach[l.id].sort((a, b) => klucz(a) - klucz(b)), { domyslnieZwinieta: true, listaId: l.id, karta: { bezListy: true, uchwyt: true },
+        cel: 'l:' + l.id, celNazwa: l.nazwa })).join('');
   return html || `<div class="empty">${pusto}</div>`;
 }
 function statsHtml(pola) {
@@ -1025,6 +1027,21 @@ async function zapiszKolejnoscListy(id, prevId, nextId) {
   try { await store.zapiszListe({ id, kolejnosc: nowy }, false); }
   catch (err) { toast('Nie zapisano kolejności: ' + err.message); }
 }
+// zadanie upuszczone w innej grupie: dzień (Dziś, Jutro, data), lista albo Bez terminu; zapisuje nowe miejsce razem z kolejnością
+function przeniesDoGrupy(id, cel, nazwa, skad, prevId, nextId) {
+  const z = S.zadania.find((x) => x.id === id);
+  if (!z) return;
+  if (cel === 'zalegle') { toast('Do Zaległych nie da się przenieść, wybierz dzień'); odrysuj(); return; }
+  const zmiana = cel === 'bez' ? { termin: null, lista_id: null }
+    : cel.startsWith('l:') ? { termin: null, lista_id: cel.slice(2) }
+    : { termin: cel.slice(2) };
+  if ('termin' in zmiana && (zmiana.termin || '') !== (z.termin || '')) zmiana.w_kalendarzu = false;
+  const kp = prevId ? klucz(S.zadania.find((x) => x.id === prevId) || {}) : null;
+  const kn = nextId ? klucz(S.zadania.find((x) => x.id === nextId) || {}) : null;
+  const poz = nowaPozycja(kp, kn);
+  if (poz != null) zmiana.kolejnosc = poz;
+  zmienZadanie(id, zmiana, `Przeniesione: ${skad} → ${nazwa}`, () => toast('Przeniesione: ' + nazwa));
+}
 function wlaczPrzeciaganie(kontener, zapisz = zapiszKolejnoscZadania) {
   kontener.addEventListener('pointerdown', (e) => {
     const h = e.target.closest('[data-drag]');
@@ -1032,6 +1049,8 @@ function wlaczPrzeciaganie(kontener, zapisz = zapiszKolejnoscZadania) {
     e.preventDefault();
     e.stopPropagation();
     const el = h.closest('[data-id]');
+    // karta zadania w grupach (Moje, Wszystkie) może przejść do innej grupy; listy i ekran listy tylko zmieniają kolejność
+    const grupaStart = el.classList.contains('task') && el.parentNode.dataset.cel != null ? el.parentNode : null;
     let startY = e.clientY;
     const startScroll = window.scrollY;
     kontener.classList.add('przeciagam');
@@ -1042,11 +1061,21 @@ function wlaczPrzeciaganie(kontener, zapisz = zapiszKolejnoscZadania) {
       else if (ev.clientY > window.innerHeight - 90) window.scrollBy(0, 12);
       const top = el.offsetTop;
       const prev = el.previousElementSibling, next = el.nextElementSibling;
-      if (prev && prev.dataset.id) {
+      if (grupaStart) {
+        const cel = [...kontener.querySelectorAll('.grupa[data-cel]')].find((g) => {
+          const r = g.getBoundingClientRect(); return ev.clientY >= r.top && ev.clientY <= r.bottom;
+        });
+        if (cel) {
+          const przed = [...cel.children].filter((k) => k !== el && k.classList.contains('task'))
+            .find((k) => { const r = k.getBoundingClientRect(); return ev.clientY < r.top + r.height / 2; });
+          if (przed) { if (el.nextElementSibling !== przed) cel.insertBefore(el, przed); }
+          else if (el.parentNode !== cel || el.nextElementSibling) cel.appendChild(el);
+        }
+      } else if (prev && prev.dataset.id) {
         const r = prev.getBoundingClientRect();
         if (ev.clientY < r.top + r.height / 2) el.parentNode.insertBefore(el, prev);
       }
-      if (next && next.dataset.id) {
+      if (!grupaStart && next && next.dataset.id) {
         const r = next.getBoundingClientRect();
         if (ev.clientY > r.top + r.height / 2) el.parentNode.insertBefore(el, next.nextElementSibling);
       }
@@ -1062,7 +1091,13 @@ function wlaczPrzeciaganie(kontener, zapisz = zapiszKolejnoscZadania) {
       kontener.classList.remove('przeciagam');
       ostatniePrzeciagniecie = Date.now();
       const prevEl = el.previousElementSibling, nextEl = el.nextElementSibling;
-      await zapisz(el.dataset.id, prevEl && prevEl.dataset.id, nextEl && nextEl.dataset.id);
+      const sasiad = (x) => (x && (!grupaStart || x.classList.contains('task')) ? x.dataset.id : null);
+      const prevId = sasiad(prevEl), nextId = sasiad(nextEl);
+      if (grupaStart && el.parentNode !== grupaStart && el.parentNode.dataset.cel !== grupaStart.dataset.cel) {
+        przeniesDoGrupy(el.dataset.id, el.parentNode.dataset.cel, el.parentNode.dataset.nazwa, grupaStart.dataset.nazwa, prevId, nextId);
+        return;
+      }
+      await zapisz(el.dataset.id, prevId, nextId);
     };
     h.addEventListener('pointermove', przesun);
     h.addEventListener('pointerup', koniec);
