@@ -559,27 +559,31 @@ function grupaHtml(klucz_, tytul, lista_, opcje = {}) {
   const zw = czyZwiniete(klucz_, !!opcje.domyslnieZwinieta);
   return `<div class="grupa${zw ? ' zwinieta' : ''}"${opcje.listaId ? ` data-id="${esc(opcje.listaId)}"` : ''}${opcje.cel != null ? ` data-cel="${esc(opcje.cel)}" data-nazwa="${esc(opcje.celNazwa || '')}"` : ''}>
     <button class="group-title zwin${opcje.alert ? ' alert' : ''}" data-zwin="${esc(klucz_)}" data-domyslnie="${opcje.domyslnieZwinieta ? 1 : 0}" aria-expanded="${!zw}">
-      ${opcje.listaId ? '<span class="drag" data-drag="1" title="Przeciągnij, żeby zmienić kolejność list">⠿</span>' : ''}<span class="strzalka">${zw ? '▸' : '▾'}</span> ${tytul} · ${lista_.length}</button>
-    ${zw ? '' : lista_.map((z) => karta(z, opcje.karta || {})).join('')}
+      ${opcje.listaId ? '<span class="drag" data-drag="1" title="Przeciągnij, żeby zmienić kolejność list">⠿</span>' : ''}<span class="strzalka">${zw ? '▸' : '▾'}</span> ${tytul} · ${lista_.length}${(opcje.odhaczone || []).length ? ` <span class="licznik-zr">✓ ${opcje.odhaczone.length}</span>` : ''}</button>
+    ${zw ? '' : lista_.map((z) => karta(z, opcje.karta || {})).join('') + (opcje.odhaczone || []).map((z) => karta(z, { bezListy: true })).join('')}
   </div>`;
 }
 function renderGrupy(zadania, pusto) {
-  // pozycje z list bez terminu idą pod swoją listę, reszta według dat
+  // pozycje z list bez terminu idą pod swoją listę, reszta według dat;
+  // odhaczone pozycje list zostają na dole swojej listy, przekreślone (w Zrobionych też są)
   const naListach = {};
+  const odhaczone = {};
   const reszta = [];
   zadania.forEach((z) => {
     const l = z.lista_id && lista(z.lista_id);
-    if (l && !z.termin) (naListach[l.id] = naListach[l.id] || []).push(z);
+    if (z.status === 'zrobione') { if (l) (odhaczone[l.id] = odhaczone[l.id] || []).push(z); }
+    else if (l && !z.termin) (naListach[l.id] = naListach[l.id] || []).push(z);
     else reszta.push(z);
   });
   const g = grupuj(reszta);
   let html = Object.entries(g).filter(([, l]) => l.length)
     .map(([n, l]) => grupaHtml(S.widok + ':' + n, n, l, { alert: n === 'Zaległe', karta: { uchwyt: true },
       cel: n === 'Zaległe' ? 'zalegle' : n === 'Bez terminu' ? 'bez' : 'd:' + l[0].termin, celNazwa: n })).join('');
-  html += S.listy.filter((l) => naListach[l.id]).sort((a, b) => kluczListy(a) - kluczListy(b)).map((l) =>
+  html += S.listy.filter((l) => naListach[l.id] || odhaczone[l.id]).sort((a, b) => kluczListy(a) - kluczListy(b)).map((l) =>
     grupaHtml(S.widok + ':lista:' + l.id, `${esc(l.ikona)} ${esc(l.nazwa)}`,
-      naListach[l.id].sort((a, b) => klucz(a) - klucz(b)), { domyslnieZwinieta: true, listaId: l.id, karta: { bezListy: true, uchwyt: true },
-        cel: 'l:' + l.id, celNazwa: l.nazwa })).join('');
+      (naListach[l.id] || []).sort((a, b) => klucz(a) - klucz(b)), { domyslnieZwinieta: true, listaId: l.id, karta: { bezListy: true, uchwyt: true },
+        cel: 'l:' + l.id, celNazwa: l.nazwa,
+        odhaczone: (odhaczone[l.id] || []).sort((a, b) => (b.zrobione_kiedy || '').localeCompare(a.zrobione_kiedy || '')) })).join('');
   return html || `<div class="empty">${pusto}</div>`;
 }
 function statsHtml(pola) {
@@ -656,7 +660,7 @@ function renderMain() {
     }).join('') || '<div class="empty">Nic jeszcze nie zostało odhaczone w ostatnich 4 miesiącach.</div>';
     return;
   }
-  v.innerHTML = renderGrupy(zakres.filter((z) => z.status !== 'zrobione'), moje ? 'Masz czysto. Nowe zadanie dodasz przyciskiem +' : 'Brak otwartych zadań.');
+  v.innerHTML = renderGrupy(zakres, moje ? 'Masz czysto. Nowe zadanie dodasz przyciskiem +' : 'Brak otwartych zadań.');
 }
 
 // ---------- PANEL MENEDŻERA ----------
@@ -1056,9 +1060,18 @@ function wlaczPrzeciaganie(kontener, zapisz = zapiszKolejnoscZadania) {
     kontener.classList.add('przeciagam');
     el.classList.add('dragging');
     try { h.setPointerCapture(e.pointerId); } catch (err) { /* stare przeglądarki */ }
-    const przesun = (ev) => {
-      if (ev.clientY < 90) window.scrollBy(0, -12);
-      else if (ev.clientY > window.innerHeight - 90) window.scrollBy(0, 12);
+    // pozycja palca/myszy; przewijanie przy krawędzi ekranu chodzi samo w pętli klatek, także gdy palec stoi
+    let y = e.clientY, klatka = 0;
+    const przewijaj = () => {
+      const brzeg = 70, gora = (($('header') && $('header').getBoundingClientRect().bottom) || 0) + brzeg;
+      const v = y < gora ? -Math.ceil((gora - y) / 5) : y > window.innerHeight - brzeg ? Math.ceil((y - window.innerHeight + brzeg) / 5) : 0;
+      if (v) { const przed_ = window.scrollY; window.scrollBy(0, v); if (window.scrollY !== przed_) uloz(); }
+      klatka = requestAnimationFrame(przewijaj);
+    };
+    klatka = requestAnimationFrame(przewijaj);
+    const przesun = (ev) => { if (ev.pointerId !== e.pointerId) return; y = ev.clientY; uloz(); };
+    const uloz = () => {
+      const ev = { clientY: y };
       const top = el.offsetTop;
       const prev = el.previousElementSibling, next = el.nextElementSibling;
       if (grupaStart) {
@@ -1082,10 +1095,12 @@ function wlaczPrzeciaganie(kontener, zapisz = zapiszKolejnoscZadania) {
       startY += el.offsetTop - top; // element zmienił miejsce w układzie, palec zostaje na nim
       el.style.transform = `translateY(${ev.clientY - startY + (window.scrollY - startScroll)}px)`;
     };
-    const koniec = async () => {
-      h.removeEventListener('pointermove', przesun);
-      h.removeEventListener('pointerup', koniec);
-      h.removeEventListener('pointercancel', koniec);
+    const koniec = async (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
+      cancelAnimationFrame(klatka);
+      document.removeEventListener('pointermove', przesun);
+      document.removeEventListener('pointerup', koniec);
+      document.removeEventListener('pointercancel', koniec);
       el.style.transform = '';
       el.classList.remove('dragging');
       kontener.classList.remove('przeciagam');
@@ -1099,9 +1114,10 @@ function wlaczPrzeciaganie(kontener, zapisz = zapiszKolejnoscZadania) {
       }
       await zapisz(el.dataset.id, prevId, nextId);
     };
-    h.addEventListener('pointermove', przesun);
-    h.addEventListener('pointerup', koniec);
-    h.addEventListener('pointercancel', koniec);
+    // nasłuch na całym dokumencie: przestawienie karty w innej grupie zrywa przechwycenie wskaźnika na uchwycie
+    document.addEventListener('pointermove', przesun);
+    document.addEventListener('pointerup', koniec);
+    document.addEventListener('pointercancel', koniec);
   });
 }
 async function uzyjSzablonu(szablon) {
