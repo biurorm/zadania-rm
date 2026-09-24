@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 14;
+const WERSJA = 15;
 
 const $ = (s) => document.querySelector(s);
 document.querySelectorAll('[data-wersja]').forEach((el) => { el.textContent = (el.dataset.wersja || '') + 'v' + WERSJA; });
@@ -1579,7 +1579,8 @@ function renderSzczegoly() {
   ].filter(Boolean);
   el.innerHTML = `
     <div class="card">
-      <h1 class="detail-title">${esc(z.tytul)}</h1>
+      <div class="tytul-row"><h1 class="detail-title" id="d-tytul" title="Kliknij, żeby zmienić nazwę">${esc(z.tytul)}</h1>
+        <button class="tytul-edit" id="d-tytul-edit" aria-label="Zmień nazwę" title="Zmień nazwę">✏️</button></div>
       <div class="status-row">
         ${Object.entries(STATUSY).map(([k, n]) => `<button data-s="${k}" class="${z.status === k ? 'on' : ''}">${n}</button>`).join('')}
       </div>
@@ -1610,6 +1611,27 @@ function renderSzczegoly() {
   });
   zaladujMiniatury(el);
   $('#d-edytuj').onclick = () => otworzFormularz(z);
+  // zmiana nazwy w miejscu: klik w tytuł albo ołówek, Enter zapisuje, Esc anuluje
+  const edytujTytul = () => {
+    const wiersz = el.querySelector('.tytul-row');
+    if (!wiersz || wiersz.querySelector('input')) return;
+    wiersz.innerHTML = `<input class="tytul-input" id="d-tytul-inp" maxlength="200" value="${esc(z.tytul)}"><button class="btn-primary" id="d-tytul-ok">Zapisz</button>`;
+    const inp = $('#d-tytul-inp');
+    inp.focus(); inp.select();
+    let gotowe = false;
+    const zapiszTytul = (zapisac) => {
+      if (gotowe) return; gotowe = true;
+      const nowy = inp.value.trim();
+      if (zapisac && nowy && nowy !== z.tytul) zmienZadanie(z.id, { tytul: nowy }, `Nazwa: ${z.tytul} → ${nowy}`, () => toast('Nazwa zmieniona'));
+      else renderSzczegoly();
+    };
+    inp.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); zapiszTytul(true); } else if (ev.key === 'Escape') zapiszTytul(false); };
+    $('#d-tytul-ok').onpointerdown = (ev) => ev.preventDefault(); // żeby blur nie uprzedził kliknięcia
+    $('#d-tytul-ok').onclick = () => zapiszTytul(true);
+    inp.onblur = () => zapiszTytul(true);
+  };
+  $('#d-tytul').onclick = edytujTytul;
+  $('#d-tytul-edit').onclick = edytujTytul;
   if (moznaUsunac) $('#d-usun').onclick = async () => {
     if (!confirm('Usunąć to zadanie razem z historią?')) return;
     try { await store.usunZadanie(z.id); S.zadania = S.zadania.filter((x) => x.id !== z.id); toast('Usunięte'); cofnij(); }

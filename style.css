@@ -554,3 +554,8 @@ button.group-title.zwin .drag { margin: 0 2px 0 -6px; padding: 4px 0; font-size:
 #f-powtarzanie { margin-top: 4px; }
 .licznik-zr { color: var(--success); font-weight: 600; }
 .wersja { font-size: 12px; opacity: .75; background: rgba(255,255,255,.12); padding: 3px 8px; border-radius: 20px; white-space: nowrap; }
+.tytul-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 10px; }
+.tytul-row .detail-title { flex: 1; margin: 0; cursor: text; }
+.tytul-edit { flex: none; border: 1px solid var(--border); background: #fff; border-radius: 8px; padding: 4px 8px; font-size: 15px; cursor: pointer; }
+.tytul-input { flex: 1; min-width: 0; font: inherit; font-size: 18px; font-weight: 700; padding: 8px 10px; border: 2px solid var(--brand-light); border-radius: 10px; }
+.tytul-row .btn-primary { flex: none; width: auto; padding: 8px 14px; }
