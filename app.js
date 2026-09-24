@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 17;
+const WERSJA = 18;
 
 const $ = (s) => document.querySelector(s);
 document.querySelectorAll('[data-wersja]').forEach((el) => { el.textContent = (el.dataset.wersja || '') + 'v' + WERSJA; });
@@ -17,7 +17,12 @@ const TYPY = [
   { k: 'teren', n: 'Teren', i: '🚗', min: 120 },
   { k: 'prezentacja', n: 'Prezentacja', i: '🏠', min: 60 },
   { k: 'spotkanie', n: 'Spotkanie', i: '🤝', min: 60 },
-  { k: 'dokumenty', n: 'Dokumenty', i: '📄', min: 30 }
+  { k: 'dokumenty', n: 'Dokumenty', i: '📄', min: 30 },
+  { k: 'umowa', n: 'Podpisanie umowy', i: '✍️', min: 60 },
+  { k: 'akt', n: 'Akt notarialny', i: '⚖️', min: 120 },
+  { k: 'urzad', n: 'Sprawy urzędowe', i: '🏛️', min: 60 },
+  { k: 'zakupy', n: 'Zakupy', i: '🛒', min: 60 },
+  { k: 'networking', n: 'Networking', i: '👥', min: 90 }
 ];
 const PRIORYTETY = [
   { k: 1, n: 'Pilne', i: '🔴' },
