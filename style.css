@@ -553,3 +553,4 @@ button.group-title.zwin .drag { margin: 0 2px 0 -6px; padding: 4px 0; font-size:
 .zal-przyciski label { flex: 1 1 30%; margin: 0; text-align: center; padding: 11px 6px; font-size: 14px; font-weight: 600; color: var(--text); cursor: pointer; border-radius: 12px; }
 #f-powtarzanie { margin-top: 4px; }
 .licznik-zr { color: var(--success); font-weight: 600; }
+.wersja { font-size: 12px; opacity: .75; background: rgba(255,255,255,.12); padding: 3px 8px; border-radius: 20px; white-space: nowrap; }
