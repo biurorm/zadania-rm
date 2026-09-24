@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 15;
+const WERSJA = 16;
 
 const $ = (s) => document.querySelector(s);
 document.querySelectorAll('[data-wersja]').forEach((el) => { el.textContent = (el.dataset.wersja || '') + 'v' + WERSJA; });
@@ -1153,10 +1153,11 @@ function zadaniaDnia(d, osobaId) {
 function htmlDniaGantta(osobaId) {
   const d = S.ganttDzien || dzis();
   const l = zadaniaDnia(d, osobaId);
-  return `<div class="card dzien-gantt">
-    <div class="day-head"><b>${esc(naglowekDnia(d))} · ${l.length}</b>
+  const zw = czyZwiniete('gantt:dzien', false); // jedno ustawienie dla każdego wybranego dnia, pamiętane w przeglądarce
+  return `<div class="card dzien-gantt${zw ? ' zwinieta' : ''}">
+    <div class="day-head"><button class="dzien-zwin" data-zwin="gantt:dzien" data-domyslnie="0" aria-expanded="${!zw}"><span class="strzalka">${zw ? '▸' : '▾'}</span> <b>${esc(naglowekDnia(d))} · ${l.length}</b></button>
       <span class="btn-inline"><button class="pill" data-dodaj-dzien="${d}">+ Dodaj</button><button class="pill" data-okno-dzien="${d}">⤢ Otwórz w nowym oknie</button></span></div>
-    ${l.map((z) => karta(z, { bezDaty: true })).join('') || '<div class="empty">Nic na ten dzień.</div>'}
+    ${zw ? '' : l.map((z) => karta(z, { bezDaty: true })).join('') || '<div class="empty">Nic na ten dzień.</div>'}
   </div>`;
 }
 

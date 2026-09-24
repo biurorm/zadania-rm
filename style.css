@@ -559,3 +559,6 @@ button.group-title.zwin .drag { margin: 0 2px 0 -6px; padding: 4px 0; font-size:
 .tytul-edit { flex: none; border: 1px solid var(--border); background: #fff; border-radius: 8px; padding: 4px 8px; font-size: 15px; cursor: pointer; }
 .tytul-input { flex: 1; min-width: 0; font: inherit; font-size: 18px; font-weight: 700; padding: 8px 10px; border: 2px solid var(--brand-light); border-radius: 10px; }
 .tytul-row .btn-primary { flex: none; width: auto; padding: 8px 14px; }
+.dzien-zwin { display: flex; align-items: center; gap: 4px; background: none; border: 0; padding: 4px 2px; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.dzien-zwin:hover { color: var(--brand); }
+.dzien-gantt.zwinieta .day-head { margin-bottom: 4px; }
