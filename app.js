@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 16;
+const WERSJA = 17;
 
 const $ = (s) => document.querySelector(s);
 document.querySelectorAll('[data-wersja]').forEach((el) => { el.textContent = (el.dataset.wersja || '') + 'v' + WERSJA; });
@@ -711,24 +711,28 @@ function htmlPanel() {
   const ostatnie = robocze().filter((z) => z.status === 'zrobione').sort((a, b) => (b.zrobione_kiedy || '').localeCompare(a.zrobione_kiedy || '')).slice(0, 6);
 
   const dzisW = podsumowanieDnia(t, null);
+  // każda sekcja panelu zwijana kliknięciem w nagłówek, stan pamiętany w przeglądarce
+  const sekcja = (k, tytul, tresc, alert) => {
+    const zw = czyZwiniete('panel:' + k, false);
+    return `<div class="grupa${zw ? ' zwinieta' : ''}"><button class="group-title zwin${alert ? ' alert' : ''}" data-zwin="panel:${k}" data-domyslnie="0" aria-expanded="${!zw}"><span class="strzalka">${zw ? '▸' : '▾'}</span> ${tytul}</button>${zw ? '' : tresc}</div>`;
+  };
+  const kredytyZmiany = S.kredyty.slice().sort((a, b) => (b.zmieniono || '').localeCompare(a.zmieniono || '')).slice(0, 5).map((k) => {
+    const br = (k.braki || []).filter((x) => !x.zrobione).length;
+    const nast = nastepnyEtap(k);
+    return `<div class="task kredyt" data-kredyt="${esc(k.id)}"><div class="task-body"><div class="task-title">🏦 ${esc(k.klient)}</div>
+      <div class="task-meta"><span>${etapyZrobione(k)}/${ETAPY.length}${k.status === 'w_toku' && nast ? ', następny: ' + esc(nast.n) : ', ' + esc(K_STATUSY[k.status])}</span>${br ? `<span class="tag p1">do uzupełnienia: ${br}</span>` : ''}</div>
+      <div class="task-meta"><span>${esc(k.zmienil ? osoba(k.zmienil).imie : osoba(k.utworzyl).imie)}, ${esc(kiedyTs(k.zmieniono))}</span></div></div>${k.doradca ? avatar(k.doradca) : ''}</div>`;
+  }).join('');
   return `
     ${htmlWyniki()}
-    <div class="group-title">Zespół · kliknij osobę, żeby zobaczyć jej zadania</div>
-    <div class="people">${kartyOsob || '<div class="empty">Brak osób w zespole.</div>'}</div>
-    <button class="link-btn" data-idz="settings">Zarządzaj zespołem: role, usuwanie osób</button>
-    ${zalegle.length ? `<div class="group-title alert">Zaległe w zespole · ${zalegle.length}</div>${zalegle.sort(poPriorytecie).map((z) => karta(z)).join('')}` : ''}
-    ${pilne.length ? `<div class="group-title">Pilne otwarte · ${pilne.length}</div>${pilne.sort(sortuj).map((z) => karta(z)).join('')}` : ''}
-    <div class="group-title">Kredyty w toku · ${kWToku.length}</div>
-    <div class="card">${etapyLicz.length ? etapyLicz.map((x) => `<div class="kr-row"><span>czeka na: ${esc(x.e.n)}</span><b>${x.n}</b></div>`).join('') : '<span class="hint">Brak kredytów w toku.</span>'}
-      <button class="link-btn" data-widok="kredyty">Otwórz kredyty</button></div>
-    ${S.kredyty.length ? `<div class="group-title">Ostatnie zmiany w kredytach</div>${S.kredyty.slice().sort((a, b) => (b.zmieniono || '').localeCompare(a.zmieniono || '')).slice(0, 5).map((k) => {
-      const br = (k.braki || []).filter((x) => !x.zrobione).length;
-      const nast = nastepnyEtap(k);
-      return `<div class="task kredyt" data-kredyt="${esc(k.id)}"><div class="task-body"><div class="task-title">🏦 ${esc(k.klient)}</div>
-        <div class="task-meta"><span>${etapyZrobione(k)}/${ETAPY.length}${k.status === 'w_toku' && nast ? ', następny: ' + esc(nast.n) : ', ' + esc(K_STATUSY[k.status])}</span>${br ? `<span class="tag p1">do uzupełnienia: ${br}</span>` : ''}</div>
-        <div class="task-meta"><span>${esc(k.zmienil ? osoba(k.zmienil).imie : osoba(k.utworzyl).imie)}, ${esc(kiedyTs(k.zmieniono))}</span></div></div>${k.doradca ? avatar(k.doradca) : ''}</div>`;
-    }).join('')}` : ''}
-    ${ostatnie.length ? `<div class="group-title">Ostatnio zrobione</div>${ostatnie.map((z) => karta(z, { zrobione: true })).join('')}` : ''}`;
+    ${sekcja('zespol', 'Zespół · kliknij osobę, żeby zobaczyć jej zadania', `<div class="people">${kartyOsob || '<div class="empty">Brak osób w zespole.</div>'}</div>
+    <button class="link-btn" data-idz="settings">Zarządzaj zespołem: role, usuwanie osób</button>`)}
+    ${zalegle.length ? sekcja('zalegle', `Zaległe w zespole · ${zalegle.length}`, zalegle.sort(poPriorytecie).map((z) => karta(z)).join(''), true) : ''}
+    ${pilne.length ? sekcja('pilne', `Pilne otwarte · ${pilne.length}`, pilne.sort(sortuj).map((z) => karta(z)).join('')) : ''}
+    ${sekcja('kredyty', `Kredyty w toku · ${kWToku.length}`, `<div class="card">${etapyLicz.length ? etapyLicz.map((x) => `<div class="kr-row"><span>czeka na: ${esc(x.e.n)}</span><b>${x.n}</b></div>`).join('') : '<span class="hint">Brak kredytów w toku.</span>'}
+      <button class="link-btn" data-widok="kredyty">Otwórz kredyty</button></div>`)}
+    ${S.kredyty.length ? sekcja('kredyty-zmiany', 'Ostatnie zmiany w kredytach', kredytyZmiany) : ''}
+    ${ostatnie.length ? sekcja('ostatnie', 'Ostatnio zrobione', ostatnie.map((z) => karta(z, { zrobione: true })).join('')) : ''}`;
 }
 
 // ---------- KREDYTY ----------
