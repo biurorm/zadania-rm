@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 19;
+const WERSJA = 20;
 
 const $ = (s) => document.querySelector(s);
 document.querySelectorAll('[data-wersja]').forEach((el) => { el.textContent = (el.dataset.wersja || '') + 'v' + WERSJA; });
@@ -658,14 +658,26 @@ function renderMain() {
     const dni = {};
     zr.forEach((z) => { const d = tsDzien(z.zrobione_kiedy); (dni[d] = dni[d] || []).push(z); });
     let tydzien = null;
-    v.innerHTML = Object.entries(dni).map(([d, l]) => {
+    // dni da się zwijać: dziś domyślnie rozwinięty, starsze zwinięte (wybór pamiętany w przeglądarce)
+    const dzisD = dzis();
+    S.zrobioneDni = Object.keys(dni);
+    const pasek = S.zrobioneDni.length > 1 ? `<div class="zr-pasek">
+      <button class="btn-link" data-zwin-wszystkie="0">▾ Rozwiń wszystkie</button>
+      <button class="btn-link" data-zwin-wszystkie="1">▸ Zwiń wszystkie</button></div>` : '';
+    v.innerHTML = pasek + Object.entries(dni).map(([d, l]) => {
       const pn = d ? plusDni(d, -((parseYmd(d).getDay() + 6) % 7)) : '';
       const nowyTydzien = pn !== tydzien; tydzien = pn;
       const w = podsumowanieDnia(d, S.filtrOsoba || null);
       const wynik = w.plan ? `<span class="day-score ${w.procent >= 80 ? 'ok' : w.procent >= 50 ? 'mid' : 'bad'}">plan ${w.zrobionePlan}/${w.plan} · ${w.procent}%</span>` : '';
       return (nowyTydzien && pn ? `<div class="week-sep">Tydzień od ${parseYmd(pn).getDate()} ${MIESIACE_D[parseYmd(pn).getMonth()]}</div>` : '')
-        + `<div class="day-block"><button class="day-title" data-podsum="${d}"><span>${esc(naglowekDnia(d))}</span><span class="day-right">${wynik}<b>${l.length} ✓</b></span></button>`
-        + l.map((z) => karta(z, { zrobione: true })).join('') + '</div>';
+        + (() => {
+          const domZw = d !== dzisD;
+          const zw = czyZwiniete('zrobione:' + d, domZw);
+          return `<div class="day-block${zw ? ' zwinieta' : ''}"><div class="day-title">
+            <button class="day-zwin" data-zwin="zrobione:${d}" data-domyslnie="${domZw ? 1 : 0}" aria-expanded="${!zw}"><span class="strzalka">${zw ? '▸' : '▾'}</span> ${esc(naglowekDnia(d))}</button>
+            <button class="day-right" data-podsum="${d}" title="Podsumowanie dnia">${wynik}<b>${l.length} ✓</b> <span class="day-podsum">📊</span></button></div>`
+            + (zw ? '' : l.map((z) => karta(z, { zrobione: true })).join('')) + '</div>';
+        })();
     }).join('') || '<div class="empty">Nic jeszcze nie zostało odhaczone w ostatnich 4 miesiącach.</div>';
     return;
   }
@@ -1997,6 +2009,13 @@ document.addEventListener('click', (e) => {
   if (pl) { e.stopPropagation(); wybierzDate(pl.dataset.planuj); return; }
   const nd = e.target.closest('[data-na-dzien]');
   if (nd) { ustawDzien(nd.dataset.zadanie, nd.dataset.naDzien); return; }
+  const zww = e.target.closest('[data-zwin-wszystkie]');
+  if (zww) {
+    const zwin = zww.dataset.zwinWszystkie === '1';
+    (S.zrobioneDni || []).forEach((d) => { ZWINIETE['zrobione:' + d] = zwin; });
+    try { localStorage.setItem('rm-zadania-zwiniete', JSON.stringify(ZWINIETE)); } catch (er) { /* brak */ }
+    odrysuj(); return;
+  }
   const zw = e.target.closest('[data-zwin]');
   if (zw) { przelaczGrupe(zw.dataset.zwin, zw.dataset.domyslnie === '1'); odrysuj(); return; }
   const g = e.target.closest('[data-gcal]');
