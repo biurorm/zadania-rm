@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 20;
+const WERSJA = 21;
 
 const $ = (s) => document.querySelector(s);
 document.querySelectorAll('[data-wersja]').forEach((el) => { el.textContent = (el.dataset.wersja || '') + 'v' + WERSJA; });
@@ -569,12 +569,20 @@ function grupaHtml(klucz_, tytul, lista_, opcje = {}) {
   return `<div class="grupa${zw ? ' zwinieta' : ''}"${opcje.listaId ? ` data-id="${esc(opcje.listaId)}"` : ''}${opcje.cel != null ? ` data-cel="${esc(opcje.cel)}" data-nazwa="${esc(opcje.celNazwa || '')}"` : ''}>
     <button class="group-title zwin${opcje.alert ? ' alert' : ''}" data-zwin="${esc(klucz_)}" data-domyslnie="${opcje.domyslnieZwinieta ? 1 : 0}" aria-expanded="${!zw}">
       ${opcje.listaId ? '<span class="drag" data-drag="1" title="Przeciągnij, żeby zmienić kolejność list">⠿</span>' : ''}<span class="strzalka">${zw ? '▸' : '▾'}</span> ${tytul} · ${lista_.length}${(opcje.odhaczone || []).length ? ` <span class="licznik-zr">✓ ${opcje.odhaczone.length}</span>` : ''}</button>
-    ${zw ? '' : lista_.map((z) => karta(z, opcje.karta || {})).join('') + (opcje.odhaczone || []).map((z) => karta(z, { bezListy: true })).join('')}
+    ${zw ? '' : lista_.map((z) => karta(z, opcje.karta || {})).join('') + odhaczoneHtml(klucz_, opcje.odhaczone || [])}
   </div>`;
+}
+// odhaczone pozycje listy są domyślnie schowane pod przyciskiem, żeby nie zaśmiecały listy
+function odhaczoneHtml(klucz_, odh) {
+  if (!odh.length) return '';
+  const k = klucz_ + ':zrobione';
+  const zw = czyZwiniete(k, true);
+  return `<button class="pokaz-zr" data-zwin="${esc(k)}" data-domyslnie="1" aria-expanded="${!zw}">${zw ? `Pokaż zrobione (${odh.length})` : 'Schowaj zrobione'}</button>`
+    + (zw ? '' : odh.map((z) => karta(z, { bezListy: true })).join(''));
 }
 function renderGrupy(zadania, pusto) {
   // pozycje z list bez terminu idą pod swoją listę, reszta według dat;
-  // odhaczone pozycje list zostają na dole swojej listy, przekreślone (w Zrobionych też są)
+  // odhaczone pozycje list są schowane na dole swojej listy pod przyciskiem (w Zrobionych też są)
   const naListach = {};
   const odhaczone = {};
   const reszta = [];
