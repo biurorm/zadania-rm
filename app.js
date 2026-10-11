@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 22;
+const WERSJA = 23;
 
 const $ = (s) => document.querySelector(s);
 document.querySelectorAll('[data-wersja]').forEach((el) => { el.textContent = (el.dataset.wersja || '') + 'v' + WERSJA; });
@@ -677,14 +677,14 @@ function renderMain() {
     const pasek = S.zrobioneDni.length > 1 ? `<div class="zr-pasek">
       <button class="btn-link" data-zwin-wszystkie="0">▾ Rozwiń wszystkie</button>
       <button class="btn-link" data-zwin-wszystkie="1">▸ Zwiń wszystkie</button></div>` : '';
-    const mojTydzien = !jestemAdminem() && (S.podsumowania || []).some((x) => x.osoba === S.me.id)
-      ? `<div class="grupa"><div class="group-title">📅 Mój tydzień</div>${htmlTydzien([S.me.id])}</div>` : '';
-    v.innerHTML = mojTydzien + pasek + Object.entries(dni).map(([d, l]) => {
+    // podsumowanie tygodnia pod nagłówkiem tygodnia: moje, a u menedżera osoby wybranej w filtrze
+    const ktoTydzien = jestemAdminem() ? S.filtrOsoba || S.me.id : S.me.id;
+    v.innerHTML = pasek + Object.entries(dni).map(([d, l]) => {
       const pn = d ? plusDni(d, -((parseYmd(d).getDay() + 6) % 7)) : '';
       const nowyTydzien = pn !== tydzien; tydzien = pn;
       const w = podsumowanieDnia(d, S.filtrOsoba || null);
       const wynik = w.plan ? `<span class="day-score ${w.procent >= 80 ? 'ok' : w.procent >= 50 ? 'mid' : 'bad'}">plan ${w.zrobionePlan}/${w.plan} · ${w.procent}%</span>` : '';
-      return (nowyTydzien && pn ? `<div class="week-sep">Tydzień od ${parseYmd(pn).getDate()} ${MIESIACE_D[parseYmd(pn).getMonth()]}</div>` : '')
+      return (nowyTydzien && pn ? `<div class="week-sep">Tydzień od ${parseYmd(pn).getDate()} ${MIESIACE_D[parseYmd(pn).getMonth()]}</div>${tydzienPodNaglowkiem(pn, ktoTydzien)}` : '')
         + (() => {
           const domZw = d !== dzisD;
           const zw = czyZwiniete('zrobione:' + d, domZw);
@@ -781,7 +781,19 @@ function htmlTydzien(osobyIds) {
   const tyg = tygodnie.includes(S.tydzien) ? S.tydzien : tygodnie[0];
   const zakres = (pn) => { const a = parseYmd(pn), b = parseYmd(plusDni(pn, 6)); return `${a.getDate()} ${MIESIACE_D[a.getMonth()]} – ${b.getDate()} ${MIESIACE_D[b.getMonth()]}`; };
   const wybor = `<div class="chips tyg-wybor">${tygodnie.slice(0, 10).map((pn) => `<button class="chip${pn === tyg ? ' on' : ''}" data-tydzien="${pn}">${esc(zakres(pn))}</button>`).join('')}</div>`;
-  const karty = osobyIds.map((id) => wiersze.find((x) => x.osoba === id && x.tydzien === tyg)).filter(Boolean).map((x) => {
+  const karty = osobyIds.map((id) => wiersze.find((x) => x.osoba === id && x.tydzien === tyg)).filter(Boolean).map(kartaTygodnia).join('');
+  return wybor + `<div class="people">${karty || '<div class="empty">Brak podsumowania w tym tygodniu.</div>'}</div>
+    <p class="hint">Ważne: akty, umowy, pozyski, rezerwacje, przedwstępne. „Mogły poczekać” to ocena asystenta AI: zadania, które zjadły czas, a nie przybliżyły transakcji.</p>`;
+}
+// w zakładce Zrobione: zwinięte podsumowanie pod nagłówkiem każdego tygodnia
+function tydzienPodNaglowkiem(pn, osobaId) {
+  const x = (S.podsumowania || []).find((p) => p.osoba === osobaId && p.tydzien === pn);
+  if (!x) return '';
+  const d = x.dane || {};
+  const zj = (d.zjadacze || {}).razem || 0;
+  return `<details class="tyg-pod"><summary>📊 Podsumowanie tygodnia: ${d.zrobione || 0} zrobionych · ${(d.wazne || {}).razem || 0} ważnych · ${zj} mogło poczekać</summary>${kartaTygodnia(x)}</details>`;
+}
+function kartaTygodnia(x) {
     const d = x.dane || {}, w = d.wazne || {}, zj = d.zjadacze || { razem: 0, lista: [] }, pl = d.plan || {};
     const rozbicie = ['akty', 'umowy', 'pozyski', 'rezerwacje', 'przedwstępne'].filter((k) => w[k]).map((k) => `${k} ${w[k]}`).join(', ');
     return `<div class="person tyg">
@@ -797,9 +809,6 @@ function htmlTydzien(osobyIds) {
       ${zj.lista && zj.lista.length ? `<details class="tyg-zj"><summary>⏳ Zjadacze czasu: ${zj.razem}</summary><ul>${zj.lista.map((z) => `<li><b>${esc(z.tytul)}</b>${z.powod ? ` · ${esc(z.powod)}` : ''}</li>`).join('')}</ul></details>` : ''}
       ${d.komentarz ? `<p class="tyg-kom">💬 ${esc(d.komentarz)}</p>` : ''}
     </div>`;
-  }).join('');
-  return wybor + `<div class="people">${karty || '<div class="empty">Brak podsumowania w tym tygodniu.</div>'}</div>
-    <p class="hint">Ważne: akty, umowy, pozyski, rezerwacje, przedwstępne. „Mogły poczekać” to ocena asystenta AI: zadania, które zjadły czas, a nie przybliżyły transakcji.</p>`;
 }
 
 // ---------- KREDYTY ----------

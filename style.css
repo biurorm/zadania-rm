@@ -581,3 +581,6 @@ button.group-title.zwin .drag { margin: 0 2px 0 -6px; padding: 4px 0; font-size:
 .tyg-zj summary { cursor: pointer; color: var(--danger); font-weight: 600; }
 .tyg-zj ul { margin: 6px 0 0; padding-left: 18px; }
 .tyg-zj li { margin-bottom: 4px; }
+.tyg-pod { margin: 0 0 10px; }
+.tyg-pod > summary { cursor: pointer; padding: 8px 12px; border-radius: 10px; background: var(--brand-soft); color: var(--brand); font-size: 13px; font-weight: 600; }
+.tyg-pod[open] > summary { margin-bottom: 8px; }
