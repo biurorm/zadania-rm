@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 23;
+const WERSJA = 24;
 
 const $ = (s) => document.querySelector(s);
 document.querySelectorAll('[data-wersja]').forEach((el) => { el.textContent = (el.dataset.wersja || '') + 'v' + WERSJA; });
@@ -807,6 +807,7 @@ function kartaTygodnia(x) {
       </div>
       ${rozbicie ? `<p class="tyg-linia">⭐ ${esc(rozbicie)}</p>` : ''}
       ${zj.lista && zj.lista.length ? `<details class="tyg-zj"><summary>⏳ Zjadacze czasu: ${zj.razem}</summary><ul>${zj.lista.map((z) => `<li><b>${esc(z.tytul)}</b>${z.powod ? ` · ${esc(z.powod)}` : ''}</li>`).join('')}</ul></details>` : ''}
+      ${d.delegacja && d.delegacja.length ? `<div class="tyg-del"><b>👩‍💼 Oddeleguj do Anety (${d.delegacja.length})</b><ul>${d.delegacja.map((z) => `<li><b>${esc(z.tytul)}</b>${z.jak ? ` · ${esc(z.jak)}` : ''}</li>`).join('')}</ul></div>` : ''}
       ${d.komentarz ? `<p class="tyg-kom">💬 ${esc(d.komentarz)}</p>` : ''}
     </div>`;
 }
