@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="mobile-web-app-capable" content="yes">
-  <link rel="stylesheet" href="style.css?v=24">
+  <link rel="stylesheet" href="style.css?v=25">
 </head>
 <body>
 
@@ -76,6 +76,12 @@
     <div class="toolbar" id="toolbar">
       <div class="chips chips-scroll" id="osoby-filtr"></div>
       <input type="search" id="szukaj" placeholder="Szukaj: tytuł, oferta, opis">
+    </div>
+
+    <!-- szybkie dodawanie: poza #view, żeby odświeżenie listy nie kasowało wpisywanego tekstu -->
+    <div class="szybko" id="szybko" style="display:none">
+      <form class="quick-add" id="q-dodaj"><input id="q-tytul" maxlength="300" placeholder="+ Nowe zadanie, wpisz i Enter" autocomplete="off" enterkeyhint="done"><button class="btn-primary" type="submit">Dodaj</button></form>
+      <div class="q-opcje" id="q-opcje"></div>
     </div>
 
     <div id="view"></div>
@@ -244,7 +250,7 @@
 
 <script src="config.js?v=2"></script>
 <script src="vendor/supabase.js"></script>
-<script src="app.js?v=24"></script>
+<script src="app.js?v=25"></script>
 <script>
   if ('serviceWorker' in navigator) {
     // nowa wersja przejęła aplikację: przeładuj, ale nie w trakcie wpisywania (wtedy przy następnym otwarciu)

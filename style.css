@@ -279,7 +279,7 @@ label.checkbox input { width: 22px; height: 22px; margin: 2px 0 0 0; flex: none;
   .screen { padding: 20px 24px; }
   #screen-detail, #screen-form, #screen-settings, #screen-login, #screen-haslo { max-width: 760px; margin: 0 auto; }
   .tabs { max-width: fit-content; }
-  .stats, .toolbar { max-width: 760px; }
+  .stats, .toolbar, .szybko { max-width: 760px; }
   #view { max-width: 760px; }
   .tab, .chip, .task-body, .cal-day, .check, button { cursor: pointer; }
   .task:hover { border-color: #d6d3d1; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
@@ -588,3 +588,28 @@ button.group-title.zwin .drag { margin: 0 2px 0 -6px; padding: 4px 0; font-size:
 .tyg-del b:first-child { color: var(--brand); }
 .tyg-del ul { margin: 6px 0 0; padding-left: 18px; }
 .tyg-del li { margin-bottom: 4px; }
+
+/* PRZEKAZYWANIE I SZYBKIE DODAWANIE (v25) */
+.av-btn { flex: none; position: relative; padding: 0; border: 0; background: none; border-radius: 50%; cursor: pointer; }
+.av-btn .av-strzalka {
+  position: absolute; right: -4px; bottom: -4px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; color: var(--brand); border: 1px solid var(--border);
+  font-size: 10px; line-height: 14px; text-align: center;
+}
+.av-btn:hover .avatar { box-shadow: 0 0 0 3px var(--brand-soft); }
+.przekaz-menu {
+  position: fixed; z-index: 60; min-width: 200px; max-width: calc(100vw - 16px); max-height: 60vh; overflow-y: auto;
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+}
+.pm-tytul { font-size: 12px; color: var(--muted); padding: 6px 8px 8px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-osoba {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 8px;
+  border: 0; background: none; border-radius: 8px; font-size: 15px; text-align: left; color: var(--text); cursor: pointer;
+}
+.pm-osoba:hover { background: var(--brand-soft); }
+.pm-osoba.on { font-weight: 700; color: var(--brand); }
+.szybko { margin: 0 0 12px; }
+.q-opcje { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.q-opcje .chips { margin-bottom: 0; }
+.q-kiedy { display: flex; flex-wrap: wrap; gap: 6px; }

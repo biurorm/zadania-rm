@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 24;
+const WERSJA = 25;
 
 const $ = (s) => document.querySelector(s);
 document.querySelectorAll('[data-wersja]').forEach((el) => { el.textContent = (el.dataset.wersja || '') + 'v' + WERSJA; });
@@ -537,9 +537,80 @@ function karta(z, opcje = {}) {
       ${meta.length ? `<div class="task-meta">${meta.join('')}</div>` : ''}
     </div>
     ${opcje.uchwyt && !zrobione ? `<button class="plan-btn" data-planuj="${esc(z.id)}" title="Zaplanuj na konkretny dzień">📅</button>` : ''}
-    ${avatar(z.przypisany)}
+    ${!zrobione && mogePrzekazac(z) ? `<button class="av-btn" data-przekaz-menu="${esc(z.id)}" title="Przekaż innej osobie" aria-label="Przekaż innej osobie">${avatar(z.przypisany)}<span class="av-strzalka">⇄</span></button>` : avatar(z.przypisany)}
   </div>`;
 }
+// ---------- PRZEKAZYWANIE ZADAŃ ----------
+// przekazuje menedżer (każde zadanie) albo autor zadania; doradca nie dostaje zadań, tylko kredyty
+const osobyDoZadan = () => ROLE_GRUPY.map(([r]) => aktywni().filter((p) => p.rola === r && r !== 'doradca')).flat();
+const mogePrzekazac = (z) => (jestemAdminem() || z.utworzyl === S.me.id) && osobyDoZadan().length > 1;
+const imieJa = (p) => (p.id === S.me.id ? p.imie + ' (ja)' : p.imie);
+function przekaz(id, kto) {
+  const z = S.zadania.find((x) => x.id === id);
+  if (!z || !kto || z.przypisany === kto) return;
+  const stary = z.przypisany;
+  const znika = !jestemAdminem() && osoba(kto).rola === 'admin' && kto !== S.me.id; // zlecone menedżerowi znika zlecającemu
+  zmienZadanie(id, { przypisany: kto, w_kalendarzu: false }, `Przekazano: ${osoba(stary).imie} → ${osoba(kto).imie}`, () => {
+    if (znika) { S.zadania = S.zadania.filter((x) => x.id !== id); odrysuj(); toast(`Przekazane: ${osoba(kto).imie}`); return; }
+    toast(kto === S.me.id ? 'Wróciło do Ciebie' : `Przekazane: ${osoba(kto).imie}`, 'Cofnij', () => przekaz(id, stary));
+  });
+}
+function zamknijMenuPrzekaz() { const m = $('#przekaz-menu'); if (m) m.remove(); }
+function menuPrzekaz(id, kotwica) {
+  zamknijMenuPrzekaz();
+  const z = S.zadania.find((x) => x.id === id);
+  if (!z) return;
+  const m = document.createElement('div');
+  m.id = 'przekaz-menu';
+  m.className = 'przekaz-menu';
+  m.innerHTML = `<div class="pm-tytul">Przekaż: ${esc(z.tytul)}</div>` + osobyDoZadan().map((p) =>
+    `<button type="button" class="pm-osoba${z.przypisany === p.id ? ' on' : ''}" data-przekaz="${esc(id)}" data-do="${esc(p.id)}">${avatar(p.id, true)} ${esc(imieJa(p))}${z.przypisany === p.id ? ' ✓' : ''}</button>`).join('');
+  document.body.appendChild(m);
+  const r = kotwica.getBoundingClientRect();
+  const w = m.offsetWidth, h = m.offsetHeight;
+  m.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)) + 'px';
+  m.style.top = (r.bottom + h + 8 > window.innerHeight ? Math.max(8, r.top - h - 4) : r.bottom + 4) + 'px';
+}
+window.addEventListener('scroll', zamknijMenuPrzekaz, true);
+// szybkie dodawanie nad listą (Moje, Wszystkie): tytuł, dla kogo, kiedy
+function renderSzybko() {
+  const el = $('#szybko');
+  const widac = ['moje', 'wszystkie'].includes(S.widok) && !!S.me;
+  el.style.display = widac ? '' : 'none';
+  if (!widac) return;
+  const ludzie = osobyDoZadan();
+  if (!ludzie.some((p) => p.id === S.qKto)) S.qKto = S.me.id;
+  if (S.qKiedy === undefined) S.qKiedy = 'dzis';
+  const kiedy = [['dzis', 'Dziś'], ['jutro', 'Jutro'], ['', 'Bez terminu']];
+  $('#q-opcje').innerHTML = (ludzie.length > 1 ? `<div class="chips chips-scroll q-kto">${ludzie.map((p) =>
+    `<button type="button" class="chip${S.qKto === p.id ? ' on' : ''}" data-q-kto="${esc(p.id)}">${avatar(p.id, true)} ${esc(imieJa(p))}</button>`).join('')}</div>` : '')
+    + `<div class="q-kiedy">${kiedy.map(([k, n]) => `<button type="button" class="pill${S.qKiedy === k ? ' on' : ''}" data-q-kiedy="${k}">${n}</button>`).join('')}</div>`;
+}
+async function dodajSzybko() {
+  const pole = $('#q-tytul');
+  const t = pole.value.trim();
+  if (!t) return;
+  pole.value = '';
+  if (!('ontouchstart' in window)) pole.focus();
+  const kto = S.qKto || S.me.id;
+  const termin = S.qKiedy === 'dzis' ? dzis() : S.qKiedy === 'jutro' ? plusDni(dzis(), 1) : null;
+  const teraz = new Date().toISOString();
+  const z = { id: uuid(), tytul: t, typ: 'zadanie', przypisany: kto, priorytet: 3, oferta: '', opis: '', status: 'otwarte', utworzyl: S.me.id, lista_id: null, termin, kalendarz: false, w_kalendarzu: false, kolejnosc: Date.now(), utworzono: teraz, zmieniono: teraz };
+  const znika = !jestemAdminem() && osoba(kto).rola === 'admin' && kto !== S.me.id;
+  if (!znika) { S.zadania.push(z); renderMain(); }
+  try {
+    const w = await store.zapiszZadanie(Object.assign({}, z), true, [kto === S.me.id ? 'Utworzono zadanie' : `Zlecono: ${osoba(kto).imie}`]);
+    if (!znika) Object.assign(z, w);
+    toast(kto === S.me.id ? `Dodane: ${nazwaDnia(termin)}` : `Zlecone: ${osoba(kto).imie}, ${nazwaDnia(termin).toLowerCase()}`);
+    odswiez();
+  } catch (err) {
+    S.zadania = S.zadania.filter((x) => x.id !== z.id);
+    renderMain();
+    if (!pole.value) pole.value = t;
+    toast('Nie zapisano: ' + err.message);
+  }
+}
+$('#q-dodaj').addEventListener('submit', (e) => { e.preventDefault(); dodajSzybko(); });
 // przeniesienie zadania (np. pozycji z listy) na konkretny dzień; zostaje na liście, a w Moje wchodzi do swojego dnia
 function ustawDzien(id, termin) {
   const z = S.zadania.find((x) => x.id === id);
@@ -647,6 +718,7 @@ function renderMain() {
   renderZakladki();
   document.body.classList.toggle('widok-kalendarz', S.widok === 'kalendarz');
   renderFiltrOsob();
+  renderSzybko();
   $('#szukaj').parentElement.style.display = ['panel', 'gantt'].includes(S.widok) ? 'none' : '';
   $('#szukaj').placeholder = S.widok === 'kredyty' ? 'Szukaj: klient, oferta, bank' : 'Szukaj: tytuł, oferta, opis';
   $('#fab').style.display = S.widok === 'panel' ? 'none' : '';
@@ -1673,6 +1745,8 @@ function renderSzczegoly() {
         <button class="pill" data-planuj="${esc(z.id)}">📅 Wybierz datę</button>
         ${z.termin ? `<button class="pill" data-na-dzien="" data-zadanie="${esc(z.id)}">Bez terminu</button>` : ''}</div>
     </div>
+    ${z.status !== 'zrobione' && mogePrzekazac(z) ? `<div class="card"><div class="card-title">Dla kogo · kliknij, żeby przekazać</div>
+      <div class="quick-dates">${osobyDoZadan().map((o) => `<button class="pill${z.przypisany === o.id ? ' on' : ''}" data-przekaz="${esc(z.id)}" data-do="${esc(o.id)}">${avatar(o.id, true)} ${esc(imieJa(o))}</button>`).join('')}</div></div>` : ''}
     ${z.termin ? `<button class="btn-gcal wide" data-gcal="${esc(z.id)}">📅 ${z.w_kalendarzu && z.przypisany === S.me.id ? 'Otwórz ponownie w Kalendarzu Google' : 'Dodaj do mojego Kalendarza Google'}</button>` : ''}
     <div class="card"><dl class="info">${info.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('')}</dl></div>
     ${htmlZalaczniki(z)}
@@ -2053,6 +2127,15 @@ document.addEventListener('change', (e) => {
 $('#szukaj').addEventListener('input', (e) => { S.szukaj = e.target.value.trim(); renderMain(); });
 document.addEventListener('click', (e) => {
   if (Date.now() - ostatniePrzeciagniecie < 400) return; // puszczenie po przeciągnięciu to nie kliknięcie
+  const pm = e.target.closest('[data-przekaz-menu]');
+  if (pm) { e.stopPropagation(); if ($('#przekaz-menu')) zamknijMenuPrzekaz(); else menuPrzekaz(pm.dataset.przekazMenu, pm); return; }
+  const pk = e.target.closest('[data-przekaz]');
+  if (pk) { e.stopPropagation(); zamknijMenuPrzekaz(); przekaz(pk.dataset.przekaz, pk.dataset.do); return; }
+  zamknijMenuPrzekaz();
+  const qk = e.target.closest('[data-q-kto]');
+  if (qk) { S.qKto = qk.dataset.qKto; renderSzybko(); return; }
+  const qd = e.target.closest('[data-q-kiedy]');
+  if (qd) { S.qKiedy = qd.dataset.qKiedy; renderSzybko(); return; }
   const zu = e.target.closest('[data-zal-usun]');
   if (zu) { e.stopPropagation(); usunZalacznik(S.otwarte, Number(zu.dataset.zalUsun)); return; }
   const zo = e.target.closest('[data-zal-otworz]');
