@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 21;
+const WERSJA = 22;
 
 const $ = (s) => document.querySelector(s);
 document.querySelectorAll('[data-wersja]').forEach((el) => { el.textContent = (el.dataset.wersja || '') + 'v' + WERSJA; });
@@ -247,6 +247,10 @@ function supabaseStore(cfg) {
       if (!r.ok) throw new Error('serwer powiadomień odpowiada ' + r.status + (r.status === 404 ? ' (funkcja jeszcze niewdrożona)' : ''));
       return r.json();
     },
+    async podsumowania() {
+      const { data, error } = await sb.from('podsumowania_tygodnia').select('*').order('tydzien', { ascending: false }).limit(400);
+      blad(error); return data;
+    },
     async adminOsoba(id, aktywny, rola) {
       const { error } = await sb.rpc('admin_osoba', { p_id: id, p_aktywny: aktywny, p_rola: rola });
       blad(error);
@@ -387,7 +391,7 @@ const S = {
   widok: null, filtrOsoba: '', szukaj: '', filtrKredyt: 'w_toku',
   kalMiesiac: null, kalDzien: dzis(),
   otwarte: null, edycja: null, form: {}, kredyt: null, kForm: {},
-  ekrany: [], offline: false
+  ekrany: [], offline: false, podsumowania: [], tydzien: null
 };
 
 const osoba = (id) => S.osoby.find((p) => p.id === id) || { id, imie: '?', kolor: '#a8a29e', rola: '' };
@@ -448,6 +452,7 @@ async function wczytajDane() {
   try {
     const [osoby, zadania, kredyty, listy] = await Promise.all([store.osoby(), store.zadania(), store.kredyty(), store.listy()]);
     S.osoby = osoby; S.zadania = zadania; S.kredyty = kredyty; S.listy = listy; S.offline = false;
+    await wczytajPodsumowania();
     if (!store.demo) try { localStorage.setItem(CACHE_KEY, JSON.stringify({ osoby, zadania, kredyty, listy, kiedy: Date.now() })); } catch (e) { /* brak miejsca */ }
     baner(store.demo ? 'Tryb próbny: dane są tylko w tej przeglądarce' : '');
   } catch (e) {
@@ -672,7 +677,9 @@ function renderMain() {
     const pasek = S.zrobioneDni.length > 1 ? `<div class="zr-pasek">
       <button class="btn-link" data-zwin-wszystkie="0">▾ Rozwiń wszystkie</button>
       <button class="btn-link" data-zwin-wszystkie="1">▸ Zwiń wszystkie</button></div>` : '';
-    v.innerHTML = pasek + Object.entries(dni).map(([d, l]) => {
+    const mojTydzien = !jestemAdminem() && (S.podsumowania || []).some((x) => x.osoba === S.me.id)
+      ? `<div class="grupa"><div class="group-title">📅 Mój tydzień</div>${htmlTydzien([S.me.id])}</div>` : '';
+    v.innerHTML = mojTydzien + pasek + Object.entries(dni).map(([d, l]) => {
       const pn = d ? plusDni(d, -((parseYmd(d).getDay() + 6) % 7)) : '';
       const nowyTydzien = pn !== tydzien; tydzien = pn;
       const w = podsumowanieDnia(d, S.filtrOsoba || null);
@@ -750,6 +757,7 @@ function htmlPanel() {
   }).join('');
   return `
     ${htmlWyniki()}
+    ${sekcja('tydzien', 'Podsumowanie tygodnia · każda osoba', htmlTydzien([S.me.id].concat(ROLE_GRUPY.map(([r]) => aktywni().filter((p) => p.rola === r && p.id !== S.me.id).map((p) => p.id)).flat())))}
     ${sekcja('zespol', 'Zespół · kliknij osobę, żeby zobaczyć jej zadania', `<div class="people">${kartyOsob || '<div class="empty">Brak osób w zespole.</div>'}</div>
     <button class="link-btn" data-idz="settings">Zarządzaj zespołem: role, usuwanie osób</button>`)}
     ${zalegle.length ? sekcja('zalegle', `Zaległe w zespole · ${zalegle.length}`, zalegle.sort(poPriorytecie).map((z) => karta(z)).join(''), true) : ''}
@@ -758,6 +766,40 @@ function htmlPanel() {
       <button class="link-btn" data-widok="kredyty">Otwórz kredyty</button></div>`)}
     ${S.kredyty.length ? sekcja('kredyty-zmiany', 'Ostatnie zmiany w kredytach', kredytyZmiany) : ''}
     ${ostatnie.length ? sekcja('ostatnie', 'Ostatnio zrobione', ostatnie.map((z) => karta(z, { zrobione: true })).join('')) : ''}`;
+}
+
+// ---------- PODSUMOWANIE TYGODNIA ----------
+// Liczy i ocenia automat w chmurze (Olek, niedziela 23:00), aplikacja tylko pokazuje tabelę podsumowania_tygodnia.
+async function wczytajPodsumowania() {
+  if (!store.podsumowania) return;
+  try { S.podsumowania = await store.podsumowania(); } catch (e) { S.podsumowania = []; } // tabela jeszcze nie założona
+}
+function htmlTydzien(osobyIds) {
+  const wiersze = (S.podsumowania || []).filter((x) => osobyIds.includes(x.osoba));
+  if (!wiersze.length) return '<p class="hint">Pierwsze podsumowanie pojawi się w niedzielę po 23:00.</p>';
+  const tygodnie = [...new Set(wiersze.map((x) => x.tydzien))].sort().reverse();
+  const tyg = tygodnie.includes(S.tydzien) ? S.tydzien : tygodnie[0];
+  const zakres = (pn) => { const a = parseYmd(pn), b = parseYmd(plusDni(pn, 6)); return `${a.getDate()} ${MIESIACE_D[a.getMonth()]} – ${b.getDate()} ${MIESIACE_D[b.getMonth()]}`; };
+  const wybor = `<div class="chips tyg-wybor">${tygodnie.slice(0, 10).map((pn) => `<button class="chip${pn === tyg ? ' on' : ''}" data-tydzien="${pn}">${esc(zakres(pn))}</button>`).join('')}</div>`;
+  const karty = osobyIds.map((id) => wiersze.find((x) => x.osoba === id && x.tydzien === tyg)).filter(Boolean).map((x) => {
+    const d = x.dane || {}, w = d.wazne || {}, zj = d.zjadacze || { razem: 0, lista: [] }, pl = d.plan || {};
+    const rozbicie = ['akty', 'umowy', 'pozyski', 'rezerwacje', 'przedwstępne'].filter((k) => w[k]).map((k) => `${k} ${w[k]}`).join(', ');
+    return `<div class="person tyg">
+      <div class="person-top">${avatar(x.osoba)}<div><b>${esc(osoba(x.osoba).imie)}</b><small>${pl.zaplanowane ? `plan tygodnia ${pl.zrobione}/${pl.zaplanowane} · ${pl.procent}%` : 'bez zadań z terminem w tym tygodniu'}</small></div></div>
+      <div class="person-nums tyg-nums">
+        <span><b class="green">${d.zrobione || 0}</b>zrobione</span>
+        <span><b>${w.razem || 0}</b>ważne</span>
+        <span><b>${d.admin || 0}</b>admin.</span>
+        <span><b>${d.teren || 0}</b>w terenie</span>
+        <span><b class="${zj.razem ? 'red' : ''}">${zj.razem || 0}</b>mogły poczekać</span>
+      </div>
+      ${rozbicie ? `<p class="tyg-linia">⭐ ${esc(rozbicie)}</p>` : ''}
+      ${zj.lista && zj.lista.length ? `<details class="tyg-zj"><summary>⏳ Zjadacze czasu: ${zj.razem}</summary><ul>${zj.lista.map((z) => `<li><b>${esc(z.tytul)}</b>${z.powod ? ` · ${esc(z.powod)}` : ''}</li>`).join('')}</ul></details>` : ''}
+      ${d.komentarz ? `<p class="tyg-kom">💬 ${esc(d.komentarz)}</p>` : ''}
+    </div>`;
+  }).join('');
+  return wybor + `<div class="people">${karty || '<div class="empty">Brak podsumowania w tym tygodniu.</div>'}</div>
+    <p class="hint">Ważne: akty, umowy, pozyski, rezerwacje, przedwstępne. „Mogły poczekać” to ocena asystenta AI: zadania, które zjadły czas, a nie przybliżyły transakcji.</p>`;
 }
 
 // ---------- KREDYTY ----------
@@ -2024,6 +2066,8 @@ document.addEventListener('click', (e) => {
     try { localStorage.setItem('rm-zadania-zwiniete', JSON.stringify(ZWINIETE)); } catch (er) { /* brak */ }
     odrysuj(); return;
   }
+  const tg = e.target.closest('[data-tydzien]');
+  if (tg) { S.tydzien = tg.dataset.tydzien; odrysuj(); return; }
   const zw = e.target.closest('[data-zwin]');
   if (zw) { przelaczGrupe(zw.dataset.zwin, zw.dataset.domyslnie === '1'); odrysuj(); return; }
   const g = e.target.closest('[data-gcal]');

@@ -571,3 +571,13 @@ button.group-title.zwin .drag { margin: 0 2px 0 -6px; padding: 4px 0; font-size:
 .dzien-zwin { display: flex; align-items: center; gap: 4px; background: none; border: 0; padding: 4px 2px; font: inherit; color: inherit; text-align: left; cursor: pointer; }
 .dzien-zwin:hover { color: var(--brand); }
 .dzien-gantt.zwinieta .day-head { margin-bottom: 4px; }
+
+/* podsumowanie tygodnia */
+.tyg-wybor { margin: 4px 0 10px; }
+.person.tyg .tyg-nums { grid-template-columns: repeat(5, 1fr); }
+.tyg-linia, .tyg-kom { margin: 8px 0 0; font-size: 13px; color: var(--text); }
+.tyg-kom { color: var(--muted); }
+.tyg-zj { margin-top: 8px; font-size: 13px; }
+.tyg-zj summary { cursor: pointer; color: var(--danger); font-weight: 600; }
+.tyg-zj ul { margin: 6px 0 0; padding-left: 18px; }
+.tyg-zj li { margin-bottom: 4px; }
