@@ -613,3 +613,10 @@ button.group-title.zwin .drag { margin: 0 2px 0 -6px; padding: 4px 0; font-size:
 .q-opcje { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .q-opcje .chips { margin-bottom: 0; }
 .q-kiedy { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* bilans etatu asystentki w podsumowaniu tygodnia menedżera */
+.tyg-bilans { margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: var(--brand-soft); font-size: 13px; border-left: 4px solid var(--brand); }
+.tyg-bilans.uwaga { border-left-color: #d9822b; }
+.tyg-bilans.brak { border-left-color: #999; }
+.tyg-bilans p { margin: 6px 0 2px; }
+.tyg-bilans small { opacity: .75; }
