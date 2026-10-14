@@ -238,6 +238,13 @@
     <div class="card">
       <div class="card-title">Konto</div>
       <p class="hint" id="s-konto"></p>
+      <form id="s-haslo-form" autocomplete="on">
+        <input type="email" autocomplete="username" id="s-haslo-email" hidden>
+        <label>Nowe hasło (min. 8 znaków)
+          <input type="password" id="s-haslo" autocomplete="new-password" minlength="8" required>
+        </label>
+        <button type="submit" class="btn-primary wide">Zmień hasło</button>
+      </form>
       <button class="btn-danger wide" id="s-wyloguj">Wyloguj</button>
     </div>
     <p class="hint center" data-wersja="Zadania RM, ">Zadania RM</p>
@@ -250,7 +257,7 @@
 
 <script src="config.js?v=2"></script>
 <script src="vendor/supabase.js"></script>
-<script src="app.js?v=27"></script>
+<script src="app.js?v=28"></script>
 <script>
   if ('serviceWorker' in navigator) {
     // nowa wersja przejęła aplikację: przeładuj, ale nie w trakcie wpisywania (wtedy przy następnym otwarciu)

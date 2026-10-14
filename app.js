@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 27;
+const WERSJA = 28;
 
 // adres z linku z maila (zmiana hasła) zapamiętany, zanim Supabase go wyczyści
 const LINK_HASLA = location.hash + '&' + location.search;
@@ -2253,6 +2253,7 @@ function rysujUstawienia() {
     ? (store.demo ? 'Tryb próbny.' : 'Nową osobę dodajesz w Supabase: Authentication, Users, Add user. Po pierwszym logowaniu pojawi się tutaj, wtedy ustaw jej rolę.') + ' Usunięcie odbiera dostęp od razu, historia zadań zostaje.'
     : '';
   rysujPowiadomienia();
+  $('#s-haslo-email').value = S.me.email || '';
   $('#s-konto').textContent = store.demo ? 'Tryb próbny, baza niepodłączona.' : 'Zalogowano jako ' + (S.me.email || '');
 }
 $('#s-push-wlacz').addEventListener('click', async () => {
@@ -2293,6 +2294,12 @@ $('#s-zapisz').addEventListener('click', async () => {
   if (!imie) { toast('Wpisz imię'); return; }
   try { await store.zapiszProfil({ imie, kolor: S.nowyKolor }); await wczytajDane(); rysujUstawienia(); toast('Profil zapisany'); }
   catch (e) { toast('Nie zapisano: ' + e.message); }
+});
+$('#s-haslo-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (store.demo) { toast('Tryb próbny, hasła nie ma'); return; }
+  try { await store.noweHaslo($('#s-haslo').value); $('#s-haslo').value = ''; toast('Hasło zmienione'); }
+  catch (err) { toast('Nie udało się: ' + err.message); }
 });
 $('#s-wyloguj').addEventListener('click', async () => {
   await store.logout();
