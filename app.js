@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 28;
+const WERSJA = 29;
 
 // adres z linku z maila (zmiana hasła) zapamiętany, zanim Supabase go wyczyści
 const LINK_HASLA = location.hash + '&' + location.search;
@@ -2313,12 +2313,12 @@ $('#login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   $('#login-submit').disabled = true;
   $('#login-msg').textContent = '';
-  try { S.me = await store.login($('#login-email').value.trim(), $('#login-pass').value); await start(); }
+  try { S.me = await store.login($('#login-email').value.trim().toLowerCase(), $('#login-pass').value); await start(); }
   catch (err) { $('#login-msg').textContent = /invalid/i.test(err.message) ? 'Zły e-mail albo hasło.' : 'Nie udało się zalogować: ' + err.message; }
   $('#login-submit').disabled = false;
 });
 $('#forgot-btn').addEventListener('click', async () => {
-  const email = $('#login-email').value.trim();
+  const email = $('#login-email').value.trim().toLowerCase();
   if (!email) { $('#login-msg').textContent = 'Wpisz najpierw swój e-mail, wyślę link do zmiany hasła.'; return; }
   try { await store.resetHasla(email); $('#login-msg').textContent = 'Wysłane. Sprawdź skrzynkę (także spam) i kliknij link.'; }
   catch (err) { $('#login-msg').textContent = 'Nie udało się wysłać: ' + err.message; }

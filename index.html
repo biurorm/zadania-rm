@@ -37,7 +37,7 @@
       <div class="card-title">Zaloguj się</div>
       <form id="login-form">
         <label>E-mail
-          <input type="email" id="login-email" autocomplete="username" required>
+          <input type="email" id="login-email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required>
         </label>
         <label>Hasło
           <input type="password" id="login-pass" autocomplete="current-password" required>
@@ -257,7 +257,7 @@
 
 <script src="config.js?v=2"></script>
 <script src="vendor/supabase.js"></script>
-<script src="app.js?v=28"></script>
+<script src="app.js?v=29"></script>
 <script>
   if ('serviceWorker' in navigator) {
     // nowa wersja przejęła aplikację: przeładuj, ale nie w trakcie wpisywania (wtedy przy następnym otwarciu)
