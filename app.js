@@ -4,7 +4,12 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 26;
+const WERSJA = 27;
+
+// adres z linku z maila (zmiana hasła) zapamiętany, zanim Supabase go wyczyści
+const LINK_HASLA = location.hash + '&' + location.search;
+const LINK_ODZYSKIWANIE = /type=recovery/.test(LINK_HASLA);
+const LINK_BLAD = (LINK_HASLA.match(/error_code=([a-z_]+)/) || [])[1] || (/[#&?]error=/.test(LINK_HASLA) ? 'blad' : '');
 
 const $ = (s) => document.querySelector(s);
 document.querySelectorAll('[data-wersja]').forEach((el) => { el.textContent = (el.dataset.wersja || '') + 'v' + WERSJA; });
@@ -149,7 +154,7 @@ function supabaseStore(cfg) {
     },
     async logout() { await sb.auth.signOut(); userId = null; },
     async resetHasla(email) {
-      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname.replace(/index\.html$/, '') });
       blad(error);
     },
     async noweHaslo(haslo) { const { error } = await sb.auth.updateUser({ password: haslo }); blad(error); },
@@ -2344,7 +2349,17 @@ async function start() {
   let odzyskiwanie = false;
   const user = await store.init(() => { odzyskiwanie = true; pokaz('haslo'); });
   store.naZmiany(() => { if (S.me) odswiez(); });
-  if (odzyskiwanie || /type=recovery/.test(location.hash)) { S.me = user; pokaz('haslo'); return; }
+  if (LINK_BLAD) {
+    history.replaceState(null, '', location.pathname);
+    $('#login-msg').textContent = LINK_BLAD === 'otp_expired'
+      ? 'Ten link do zmiany hasła wygasł albo był już użyty. Wpisz e-mail, kliknij „Nie pamiętam hasła” jeszcze raz i otwórz tylko najnowszy mail.'
+      : 'Link do zmiany hasła nie zadziałał. Wpisz e-mail i kliknij „Nie pamiętam hasła” jeszcze raz.';
+    if (!user) { pokaz('login'); return; }
+  }
+  if (odzyskiwanie || LINK_ODZYSKIWANIE) {
+    if (!user) { $('#login-msg').textContent = 'Link do zmiany hasła nie zadziałał. Kliknij „Nie pamiętam hasła” jeszcze raz.'; pokaz('login'); return; }
+    S.me = user; pokaz('haslo'); return;
+  }
   if (user) { S.me = user; await start(); return; }
   if (store.demo) {
     $('#demo-card').style.display = '';
