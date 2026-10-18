@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 29;
+const WERSJA = 30;
 
 // adres z linku z maila (zmiana hasła) zapamiętany, zanim Supabase go wyczyści
 const LINK_HASLA = location.hash + '&' + location.search;
@@ -1111,7 +1111,8 @@ function renderLista() {
     el.innerHTML = `
       <div id="l-head"></div>
       <form id="l-dodaj" class="quick-add"><input id="l-szybko" maxlength="300" placeholder="+ Dodaj pozycję i naciśnij Enter" autocomplete="off" enterkeyhint="done"><button class="btn-primary" type="submit">Dodaj</button></form>
-      <p class="hint">Enter dodaje pozycję, a pole zostaje gotowe na następną. Kolejność zmienisz, przeciągając uchwyt ⠿. Osobę, termin i priorytet ustawisz po kliknięciu pozycji.</p>
+      <div id="l-dla"></div>
+      <p class="hint">Enter dodaje pozycję, a pole zostaje gotowe na następną. Kolejność zmienisz, przeciągając uchwyt ⠿. Termin i priorytet ustawisz po kliknięciu pozycji.</p>
       <div id="l-otwarte"></div>
       <div id="l-zrobione"></div>
       <div id="l-ustawienia"></div>`;
@@ -1133,7 +1134,25 @@ function renderLista() {
   if (!$('#l-otwarte').classList.contains('przeciagam')) {
     $('#l-otwarte').innerHTML = otwarte.map((z) => karta(z, { bezListy: true, uchwyt: true })).join('') || '<div class="empty">Pusto. Dodaj pierwszą pozycję powyżej.</div>';
   }
-  $('#l-zrobione').innerHTML = zrobione.length ? `<div class="group-title">Zrobione · ${zrobione.length}</div>${zrobione.map((z) => karta(z, { zrobione: true, bezListy: true })).join('')}` : '';
+  // dla kogo idą nowe pozycje tej listy (zapamiętane na urządzeniu) + przekazanie całej listy jednym kliknięciem
+  const osoby = osobyDoZadan();
+  if (!l.szablon && osoby.length > 1) {
+    const dla = dlaListy(l);
+    const doPrzekazania = otwarte.filter((z) => z.przypisany !== dla && mogePrzekazac(z));
+    $('#l-dla').innerHTML = `<div class="sub">Nowe pozycje dla</div>
+      <div class="chips">${osoby.map((p) => `<button type="button" class="chip${dla === p.id ? ' on' : ''}" data-dla-listy="${esc(p.id)}">${esc(imieJa(p))}</button>`).join('')}</div>
+      ${doPrzekazania.length ? `<button type="button" class="btn-ghost wide" id="l-przekaz-wszystkie">⇄ Przekaż ${doPrzekazania.length} otwarte: ${esc(osoba(dla).imie)}</button>` : ''}`;
+    $('#l-dla').onclick = async (e) => {
+      const b = e.target.closest('[data-dla-listy]');
+      if (b) { ustawDlaListy(l, b.dataset.dlaListy); renderLista(); return; }
+      if (e.target.closest('#l-przekaz-wszystkie')) {
+        if (!confirm(`Przekazać otwarte pozycje z listy „${l.nazwa}” (${doPrzekazania.length}) osobie: ${osoba(dla).imie}?`)) return;
+        doPrzekazania.forEach((z) => zmienZadanie(z.id, { przypisany: dla, w_kalendarzu: false }, `Przekazano: ${osoba(z.przypisany).imie} → ${osoba(dla).imie}`, () => {}));
+        toast(`Przekazane: ${osoba(dla).imie} (${doPrzekazania.length})`);
+      }
+    };
+  } else $('#l-dla').innerHTML = '';
+  $('#l-zrobione').innerHTML = zrobione.length ?`<div class="group-title">Zrobione · ${zrobione.length}</div>${zrobione.map((z) => karta(z, { zrobione: true, bezListy: true })).join('')}` : '';
   $('#l-ustawienia').innerHTML = moja ? `<div class="card"><div class="card-title">Ustawienia listy</div>
       <div class="sub">Ikona</div><div class="chips" id="l-ikony">${IKONY_LIST.map((i) => `<button type="button" class="chip${l.ikona === i ? ' on' : ''}" data-ikona="${i}">${i}</button>`).join('')}</div>
       <div class="btn-row wrap">
@@ -1158,6 +1177,12 @@ function renderLista() {
     catch (err) { toast(err.message); }
   };
 }
+const dlaListy = (l) => {
+  let id = null;
+  try { id = localStorage.getItem('rm-lista-dla:' + l.id); } catch (e) { /* tryb prywatny */ }
+  return osobyDoZadan().some((p) => p.id === id) ? id : S.me.id;
+};
+const ustawDlaListy = (l, id) => { try { localStorage.setItem('rm-lista-dla:' + l.id, id); } catch (e) { /* tryb prywatny */ } };
 // seryjne dodawanie: pole czyści się od razu i zostaje aktywne, pozycja pojawia się bez czekania na bazę
 async function dodajNaListe() {
   const l = lista(S.otwartaLista);
@@ -1166,7 +1191,7 @@ async function dodajNaListe() {
   if (!l || !t) return;
   pole.value = '';
   pole.focus();
-  const z = { id: uuid(), tytul: t, typ: 'zadanie', przypisany: S.me.id, priorytet: 3, oferta: '', opis: '', status: 'otwarte', utworzyl: S.me.id, lista_id: l.id, kalendarz: false, w_kalendarzu: false, kolejnosc: Date.now(), utworzono: new Date().toISOString(), zmieniono: new Date().toISOString() };
+  const z = { id: uuid(), tytul: t, typ: 'zadanie', przypisany: dlaListy(l), priorytet: 3, oferta: '', opis: '', status: 'otwarte', utworzyl: S.me.id, lista_id: l.id, kalendarz: false, w_kalendarzu: false, kolejnosc: Date.now(), utworzono: new Date().toISOString(), zmieniono: new Date().toISOString() };
   S.zadania.push(z);
   renderLista();
   try {
