@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 34;
+const WERSJA = 35;
 
 // adres z linku z maila (zmiana hasła) zapamiętany, zanim Supabase go wyczyści
 const LINK_HASLA = location.hash + '&' + location.search;
@@ -53,13 +53,13 @@ const ETAPY = [
 ];
 const K_STATUSY = { w_toku: 'W toku', uruchomiony: 'Uruchomiony', odpadl: 'Odpadł' };
 const WIDOKI = {
-  panel: 'Panel', moje: 'Moje', wszystkie: 'Wszystkie', listy: 'Listy', gantt: 'Gantt', kredyty: 'Kredyty', zrobione: 'Zrobione'
+  panel: 'Panel', moje: 'Moje', wszystkie: 'Wszystkie', listy: 'Listy', cykliczne: 'Cykliczne', gantt: 'Gantt', kredyty: 'Kredyty', zrobione: 'Zrobione'
 };
 const ZAKLADKI = {
-  admin: ['panel', 'moje', 'wszystkie', 'listy', 'gantt', 'kredyty', 'zrobione'],
-  asystentka: ['moje', 'gantt', 'zrobione'],
+  admin: ['panel', 'moje', 'wszystkie', 'listy', 'cykliczne', 'gantt', 'kredyty', 'zrobione'],
+  asystentka: ['moje', 'cykliczne', 'gantt', 'zrobione'],
   doradca: ['kredyty'],
-  agent: ['moje', 'gantt', 'kredyty', 'zrobione']
+  agent: ['moje', 'cykliczne', 'gantt', 'kredyty', 'zrobione']
 };
 const IKONY_LIST = ['📋', '🎬', '💰', '📄', '🏠', '📞', '🛠️', '⭐', '🧾', '📸'];
 const KOLORY = ['#094d47', '#2563eb', '#c2410c', '#7c3aed', '#be185d', '#0891b2', '#65a30d', '#b45309'];
@@ -412,7 +412,9 @@ const prio = (k) => PRIORYTETY.find((p) => p.k === Number(k)) || PRIORYTETY[2];
 const zakladki = () => ZAKLADKI[mojaRola()] || ZAKLADKI.agent;
 const lista = (id) => S.listy.find((l) => l.id === id);
 // zadania "robocze" = bez pozycji z szablonów (szablon to wzór, widać go tylko w zakładce Listy)
-const robocze = () => S.zadania.filter((z) => !(z.lista_id && lista(z.lista_id) && lista(z.lista_id).szablon));
+// cykliczne czekające na swój dzień nie zaśmiecają widoków: wskakują do Moje w dniu terminu, do tego czasu są w zakładce Cykliczne
+const czekaCykliczne = (z) => !!z.powtarzanie && z.status !== 'zrobione' && !!z.termin && z.termin > dzis();
+const robocze = () => S.zadania.filter((z) => !(z.lista_id && lista(z.lista_id) && lista(z.lista_id).szablon) && !czekaCykliczne(z));
 const etapyZrobione = (k) => ETAPY.filter((e) => k.etapy && k.etapy[e.k]).length;
 const nastepnyEtap = (k) => ETAPY.find((e) => !(k.etapy && k.etapy[e.k]));
 
@@ -733,6 +735,7 @@ function renderMain() {
   if (S.widok === 'kredyty') { v.innerHTML = htmlKredyty(); return; }
   if (S.widok === 'listy') { v.innerHTML = htmlListy(); return; }
   if (S.widok === 'gantt') { v.innerHTML = htmlGantt(); return; }
+  if (S.widok === 'cykliczne') { v.innerHTML = htmlCykliczne(); return; }
   const moje = S.widok === 'moje';
   const tylkoJa = moje || !jestemAdminem();
   const kogo = (z) => (tylkoJa ? z.przypisany === S.me.id : !S.filtrOsoba || z.przypisany === S.filtrOsoba);
@@ -1738,6 +1741,25 @@ async function zmienZadanie(id, zmiana, wpis, poZapisie) {
   }
   odswiez();
 }
+// ---------- CYKLICZNE ----------
+// jeden wiersz na serię: najbliższe otwarte wystąpienie (po odhaczeniu aplikacja sama tworzy następne)
+function htmlCykliczne() {
+  const t = dzis();
+  const kogo = (z) => (jestemAdminem() ? !S.filtrOsoba || z.przypisany === S.filtrOsoba : z.przypisany === S.me.id);
+  const serie = {};
+  S.zadania.filter((z) => z.powtarzanie && z.status !== 'zrobione' && z.termin && kogo(z) && pasuje(z)).forEach((z) => {
+    const k = z.seria || z.id;
+    if (!serie[k] || z.termin < serie[k].termin) serie[k] = z;
+  });
+  const lista_ = Object.values(serie).sort((a, b) => a.termin.localeCompare(b.termin));
+  const dzienTyg = (d) => ['niedziela', 'poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota'][parseYmd(d).getDay()];
+  const rytm = (z) => (['tydzien', '2tyg'].includes(z.powtarzanie) ? `${nazwaPowt(z.powtarzanie)}, ${dzienTyg(z.termin)}`
+    : ['miesiac', 'kwartal', 'rok'].includes(z.powtarzanie) ? `${nazwaPowt(z.powtarzanie)}, ${parseYmd(z.termin).getDate()}. dnia` : nazwaPowt(z.powtarzanie));
+  const wiersz = (z) => `<div class="task" data-id="${esc(z.id)}"><div class="task-body" data-open="${esc(z.id)}"><div class="task-title">🔁 ${esc(z.tytul)}</div>
+    <div class="task-meta"><span>${esc(rytm(z))}</span>${z.termin < t ? '<span class="tag p1">zaległe</span>' : z.termin === t ? '<span class="tag gcal-ok">dziś w Moje</span>' : `<span>następne: ${esc(nazwaDnia(z.termin))}</span>`}</div></div>${avatar(z.przypisany)}</div>`;
+  return `${lista_.map(wiersz).join('') || '<div class="empty">Brak zadań cyklicznych. Dodaj pierwsze przyciskiem +.</div>'}
+    <p class="hint">Zadanie cykliczne pokazuje się w Moje dopiero w swoim dniu, wcześniej czeka tutaj. Po odhaczeniu samo ustawia następny termin. Dzień tygodnia bierze się z pierwszej daty, np. poniedziałek = co poniedziałek. Żeby zakończyć cykl, otwórz zadanie i ustaw „Nie powtarzaj” albo je usuń.</p>`;
+}
 function nastepnyTermin(d, t) {
   if (t === 'dzien') return plusDni(d, 1);
   if (t === 'dni_robocze') { let n = plusDni(d, 1); while ([0, 6].includes(parseYmd(n).getDay())) n = plusDni(n, 1); return n; }
@@ -2300,7 +2322,7 @@ document.addEventListener('click', (e) => {
 $('#fab').addEventListener('click', () => {
   if (S.widok === 'kredyty') { otworzKredyt(null); return; }
   if (S.widok === 'listy') { nowaLista(false); return; }
-  otworzFormularz(null, S.widok === 'kalendarz' ? { termin: S.kalDzien } : {});
+  otworzFormularz(null, S.widok === 'cykliczne' ? { termin: dzis(), powtarzanie: 'tydzien' } : {});
 });
 
 // ---------- USTAWIENIA I ZESPÓŁ ----------
