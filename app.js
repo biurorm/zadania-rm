@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 35;
+const WERSJA = 36;
 
 // adres z linku z maila (zmiana hasła) zapamiętany, zanim Supabase go wyczyści
 const LINK_HASLA = location.hash + '&' + location.search;
@@ -14,6 +14,11 @@ const LINK_BLAD = (LINK_HASLA.match(/error_code=([a-z_]+)/) || [])[1] || (/[#&?]
 const $ = (s) => document.querySelector(s);
 document.querySelectorAll('[data-wersja]').forEach((el) => { el.textContent = (el.dataset.wersja || '') + 'v' + WERSJA; });
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// esc + klikalne linki (http, https, www): otwierają się od razu w nowej karcie, klik nie otwiera zadania
+const escLink = (s) => esc(s).replace(/(https?:\/\/|www\.)[^\s<]+[^\s<.,;:!?)\]'"]/gi, (u) => {
+  const href = /^www\./i.test(u) ? 'https://' + u : u;
+  return `<a class="link" href="${href}" target="_blank" rel="noopener noreferrer">${u.length > 50 ? u.slice(0, 47) + '…' : u}</a>`;
+});
 
 const TYPY = [
   { k: 'zadanie', n: 'Zadanie', i: '✅', min: 30 },
@@ -528,7 +533,7 @@ function karta(z, opcje = {}) {
   else if (opcje.bezDaty && z.godzina) meta.push(`<span class="task-when">${esc(hhmm(z.godzina))}</span>`);
   if (!zrobione && p <= 2) meta.push(`<span class="tag p${p}">${prio(p).n.toLowerCase()}</span>`);
   if (z.status === 'w_toku') meta.push('<span class="tag wtoku">w toku</span>');
-  if (z.oferta) meta.push(`<span class="tag">${esc(z.oferta)}</span>`);
+  if (z.oferta) meta.push(`<span class="tag">${escLink(z.oferta)}</span>`);
   if (z.powtarzanie) meta.push(`<span class="tag" title="${esc(nazwaPowt(z.powtarzanie))}">🔁 ${esc(nazwaPowt(z.powtarzanie).toLowerCase())}</span>`);
   if ((z.zalaczniki || []).length) meta.push(`<span class="tag">📎 ${z.zalaczniki.length}</span>`);
   if (z.lista_id && !opcje.bezListy && lista(z.lista_id)) meta.push(`<span class="tag lista">${esc(lista(z.lista_id).ikona)} ${esc(lista(z.lista_id).nazwa)}</span>`);
@@ -540,7 +545,7 @@ function karta(z, opcje = {}) {
     ${opcje.uchwyt ? '<span class="drag" data-drag="1" title="Przeciągnij, żeby zmienić kolejność">⠿</span>' : ''}
     <button class="check${zrobione ? ' on' : ''}" data-toggle="${esc(z.id)}" aria-label="${zrobione ? 'Przywróć' : 'Oznacz jako zrobione'}">${zrobione ? '✓' : ''}</button>
     <div class="task-body" data-open="${esc(z.id)}">
-      <div class="task-title">${typ(z.typ).i} ${esc(z.tytul)}</div>
+      <div class="task-title">${typ(z.typ).i} ${escLink(z.tytul)}</div>
       ${meta.length ? `<div class="task-meta">${meta.join('')}</div>` : ''}
     </div>
     ${opcje.uchwyt && !zrobione ? `<button class="plan-btn" data-planuj="${esc(z.id)}" title="Zaplanuj na konkretny dzień">📅</button>` : ''}
@@ -1841,7 +1846,7 @@ function renderSzczegoly() {
     ['Priorytet', `${p.i} ${p.n}`],
     ['Dla kogo', `${avatar(z.przypisany, true)} ${esc(osoba(z.przypisany).imie)}`],
     ['Termin', esc(z.termin ? nazwaDnia(z.termin) + (z.godzina ? ', ' + hhmm(z.godzina) : '') : 'bez terminu')],
-    z.oferta ? ['Oferta', esc(z.oferta)] : null,
+    z.oferta ? ['Oferta', escLink(z.oferta)] : null,
     z.powtarzanie ? ['Powtarzanie', `🔁 ${esc(nazwaPowt(z.powtarzanie))}`] : null,
     z.kalendarz ? ['Kalendarz', z.w_kalendarzu ? '📅 dodane do Kalendarza Google' : '📅 do dodania przez: ' + esc(osoba(z.przypisany).imie)] : null,
     ['Zlecił(a)', `${esc(osoba(z.utworzyl).imie)}, ${esc(kiedyTs(z.utworzono))}`],
@@ -1849,7 +1854,7 @@ function renderSzczegoly() {
   ].filter(Boolean);
   el.innerHTML = `
     <div class="card">
-      <div class="tytul-row"><h1 class="detail-title" id="d-tytul" title="Kliknij, żeby zmienić nazwę">${esc(z.tytul)}</h1>
+      <div class="tytul-row"><h1 class="detail-title" id="d-tytul" title="Kliknij, żeby zmienić nazwę">${escLink(z.tytul)}</h1>
         <button class="tytul-edit" id="d-tytul-edit" aria-label="Zmień nazwę" title="Zmień nazwę">✏️</button></div>
       <div class="status-row">
         ${Object.entries(STATUSY).map(([k, n]) => `<button data-s="${k}" class="${z.status === k ? 'on' : ''}">${n}</button>`).join('')}
@@ -1866,7 +1871,7 @@ function renderSzczegoly() {
     ${z.termin ? `<button class="btn-gcal wide" data-gcal="${esc(z.id)}">📅 ${z.w_kalendarzu && z.przypisany === S.me.id ? 'Otwórz ponownie w Kalendarzu Google' : 'Dodaj do mojego Kalendarza Google'}</button>` : ''}
     <div class="card"><dl class="info">${info.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('')}</dl></div>
     ${htmlZalaczniki(z)}
-    ${z.opis ? `<div class="card"><div class="card-title">Opis</div><div class="opis">${esc(z.opis)}</div></div>` : ''}
+    ${z.opis ? `<div class="card"><div class="card-title">Opis</div><div class="opis">${escLink(z.opis)}</div></div>` : ''}
     <div class="card">
       <div class="card-title">Historia i komentarze</div>
       <ul class="hist" id="hist"><li class="hint">Wczytuję…</li></ul>
@@ -1902,7 +1907,7 @@ function renderSzczegoly() {
     $('#d-tytul-ok').onclick = () => zapiszTytul(true);
     inp.onblur = () => zapiszTytul(true);
   };
-  $('#d-tytul').onclick = edytujTytul;
+  $('#d-tytul').onclick = (e) => { if (!e.target.closest('a[href]')) edytujTytul(); };
   $('#d-tytul-edit').onclick = edytujTytul;
   if (moznaUsunac) $('#d-usun').onclick = async () => {
     if (!confirm('Usunąć to zadanie razem z historią?')) return;
@@ -1931,7 +1936,7 @@ async function rysujWpisy(id) {
 }
 function htmlWpisy(l) {
   if (!l.length) return '<li class="hint">Brak wpisów.</li>';
-  return l.map((w) => `<li class="${esc(w.rodzaj)}">${avatar(w.autor, true)}<div><div class="kto">${esc(osoba(w.autor).imie)} · ${esc(kiedyTs(w.kiedy))}</div><div class="tresc">${esc(w.tresc)}</div></div></li>`).join('');
+  return l.map((w) => `<li class="${esc(w.rodzaj)}">${avatar(w.autor, true)}<div><div class="kto">${esc(osoba(w.autor).imie)} · ${esc(kiedyTs(w.kiedy))}</div><div class="tresc">${escLink(w.tresc)}</div></div></li>`).join('');
 }
 
 // ---------- ZAŁĄCZNIKI (zdjęcia, skany, PDF) ----------
@@ -2242,6 +2247,7 @@ document.addEventListener('change', (e) => {
 });
 $('#szukaj').addEventListener('input', (e) => { S.szukaj = e.target.value.trim(); renderMain(); });
 document.addEventListener('click', (e) => {
+  if (e.target.closest('a[href]')) return; // link w zadaniu: przeglądarka otwiera go sama
   if (Date.now() - ostatniePrzeciagniecie < 400) return; // puszczenie po przeciągnięciu to nie kliknięcie
   const pm = e.target.closest('[data-przekaz-menu]');
   if (pm) { e.stopPropagation(); if ($('#przekaz-menu')) zamknijMenuPrzekaz(); else menuPrzekaz(pm.dataset.przekazMenu, pm); return; }
