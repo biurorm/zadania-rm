@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 32;
+const WERSJA = 33;
 
 // adres z linku z maila (zmiana hasła) zapamiętany, zanim Supabase go wyczyści
 const LINK_HASLA = location.hash + '&' + location.search;
@@ -53,13 +53,13 @@ const ETAPY = [
 ];
 const K_STATUSY = { w_toku: 'W toku', uruchomiony: 'Uruchomiony', odpadl: 'Odpadł' };
 const WIDOKI = {
-  panel: 'Panel', moje: 'Moje', wszystkie: 'Wszystkie', listy: 'Listy', kalendarz: 'Kalendarz', gantt: 'Gantt', kredyty: 'Kredyty', zrobione: 'Zrobione'
+  panel: 'Panel', moje: 'Moje', wszystkie: 'Wszystkie', listy: 'Listy', gantt: 'Gantt', kredyty: 'Kredyty', zrobione: 'Zrobione'
 };
 const ZAKLADKI = {
-  admin: ['panel', 'moje', 'wszystkie', 'listy', 'kalendarz', 'gantt', 'kredyty', 'zrobione'],
-  asystentka: ['moje', 'kalendarz', 'gantt', 'zrobione'],
+  admin: ['panel', 'moje', 'wszystkie', 'listy', 'gantt', 'kredyty', 'zrobione'],
+  asystentka: ['moje', 'gantt', 'zrobione'],
   doradca: ['kredyty'],
-  agent: ['moje', 'kalendarz', 'gantt', 'kredyty', 'zrobione']
+  agent: ['moje', 'gantt', 'kredyty', 'zrobione']
 };
 const IKONY_LIST = ['📋', '🎬', '💰', '📄', '🏠', '📞', '🛠️', '⭐', '🧾', '📸'];
 const KOLORY = ['#094d47', '#2563eb', '#c2410c', '#7c3aed', '#be185d', '#0891b2', '#65a30d', '#b45309'];
