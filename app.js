@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 36;
+const WERSJA = 37;
 
 // adres z linku z maila (zmiana hasła) zapamiętany, zanim Supabase go wyczyści
 const LINK_HASLA = location.hash + '&' + location.search;
@@ -1762,7 +1762,15 @@ function htmlCykliczne() {
     : ['miesiac', 'kwartal', 'rok'].includes(z.powtarzanie) ? `${nazwaPowt(z.powtarzanie)}, ${parseYmd(z.termin).getDate()}. dnia` : nazwaPowt(z.powtarzanie));
   const wiersz = (z) => `<div class="task" data-id="${esc(z.id)}"><div class="task-body" data-open="${esc(z.id)}"><div class="task-title">🔁 ${esc(z.tytul)}</div>
     <div class="task-meta"><span>${esc(rytm(z))}</span>${z.termin < t ? '<span class="tag p1">zaległe</span>' : z.termin === t ? '<span class="tag gcal-ok">dziś w Moje</span>' : `<span>następne: ${esc(nazwaDnia(z.termin))}</span>`}</div></div>${avatar(z.przypisany)}</div>`;
-  return `${lista_.map(wiersz).join('') || '<div class="empty">Brak zadań cyklicznych. Dodaj pierwsze przyciskiem +.</div>'}
+  // podział na dni: codzienne na górze, potem poniedziałek–niedziela, na końcu miesięczne i rzadsze
+  const DNI = ['poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota', 'niedziela'];
+  const grupa = (z) => (['dzien', 'dni_robocze'].includes(z.powtarzanie) ? 'Każdego dnia'
+    : ['tydzien', '2tyg'].includes(z.powtarzanie) ? dzienTyg(z.termin) : 'Co miesiąc i rzadziej');
+  const kolejnosc = ['Każdego dnia'].concat(DNI, ['Co miesiąc i rzadziej']);
+  const grupy = kolejnosc.map((g) => [g, lista_.filter((z) => grupa(z) === g)]).filter(([, l]) => l.length);
+  const tytul = (g) => (DNI.includes(g) ? g[0].toUpperCase() + g.slice(1) : g);
+  return `${grupy.map(([g, l]) => `<div class="group-title">${esc(tytul(g))} · ${l.length}</div>${l.map(wiersz).join('')}`).join('')
+    || '<div class="empty">Brak zadań cyklicznych. Dodaj pierwsze przyciskiem +.</div>'}
     <p class="hint">Zadanie cykliczne pokazuje się w Moje dopiero w swoim dniu, wcześniej czeka tutaj. Po odhaczeniu samo ustawia następny termin. Dzień tygodnia bierze się z pierwszej daty, np. poniedziałek = co poniedziałek. Żeby zakończyć cykl, otwórz zadanie i ustaw „Nie powtarzaj” albo je usuń.</p>`;
 }
 function nastepnyTermin(d, t) {
