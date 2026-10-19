@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 31;
+const WERSJA = 32;
 
 // adres z linku z maila (zmiana hasła) zapamiętany, zanim Supabase go wyczyści
 const LINK_HASLA = location.hash + '&' + location.search;
@@ -885,6 +885,7 @@ function kartaTygodnia(x) {
       </div>
       ${d.wskazowki ? [['dobrze', '✅ Dobrze ci poszło'], ['skup_sie', '🎯 Na tym się skup'], ['za_malo', '⚠️ Tego było za mało']]
         .filter(([k]) => d.wskazowki[k]).map(([k, t]) => `<p class="tyg-kom"><b>${t}:</b> ${esc(d.wskazowki[k])}</p>`).join('') : ''}
+      ${d.odciaz && d.odciaz.length ? `<div class="tyg-del"><b>🤝 Odciąż Rafała w tym tygodniu</b><ul>${d.odciaz.map((z) => `<li><b>${esc(z.tytul)}</b>${z.jak ? ` · ${esc(z.jak)}` : ''}</li>`).join('')}</ul></div>` : ''}
       ${d.komentarz ? `<p class="tyg-kom">💬 ${esc(d.komentarz)}</p>` : ''}
     </div>`;
     return `<div class="person tyg">
