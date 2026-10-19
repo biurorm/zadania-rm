@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 33;
+const WERSJA = 34;
 
 // adres z linku z maila (zmiana hasła) zapamiętany, zanim Supabase go wyczyści
 const LINK_HASLA = location.hash + '&' + location.search;
@@ -816,22 +816,12 @@ function htmlPanel() {
     </button>`;
   }).join('');
 
-  const etapyLicz = ETAPY.map((e) => ({ e, n: kWToku.filter((k) => (nastepnyEtap(k) || {}).k === e.k).length })).filter((x) => x.n);
-  const ostatnie = robocze().filter((z) => z.status === 'zrobione').sort((a, b) => (b.zrobione_kiedy || '').localeCompare(a.zrobione_kiedy || '')).slice(0, 6);
-
   const dzisW = podsumowanieDnia(t, null);
   // każda sekcja panelu zwijana kliknięciem w nagłówek, stan pamiętany w przeglądarce
   const sekcja = (k, tytul, tresc, alert) => {
     const zw = czyZwiniete('panel:' + k, false);
     return `<div class="grupa${zw ? ' zwinieta' : ''}"><button class="group-title zwin${alert ? ' alert' : ''}" data-zwin="panel:${k}" data-domyslnie="0" aria-expanded="${!zw}"><span class="strzalka">${zw ? '▸' : '▾'}</span> ${tytul}</button>${zw ? '' : tresc}</div>`;
   };
-  const kredytyZmiany = S.kredyty.slice().sort((a, b) => (b.zmieniono || '').localeCompare(a.zmieniono || '')).slice(0, 5).map((k) => {
-    const br = (k.braki || []).filter((x) => !x.zrobione).length;
-    const nast = nastepnyEtap(k);
-    return `<div class="task kredyt" data-kredyt="${esc(k.id)}"><div class="task-body"><div class="task-title">🏦 ${esc(k.klient)}</div>
-      <div class="task-meta"><span>${etapyZrobione(k)}/${ETAPY.length}${k.status === 'w_toku' && nast ? ', następny: ' + esc(nast.n) : ', ' + esc(K_STATUSY[k.status])}</span>${br ? `<span class="tag p1">do uzupełnienia: ${br}</span>` : ''}</div>
-      <div class="task-meta"><span>${esc(k.zmienil ? osoba(k.zmienil).imie : osoba(k.utworzyl).imie)}, ${esc(kiedyTs(k.zmieniono))}</span></div></div>${k.doradca ? avatar(k.doradca) : ''}</div>`;
-  }).join('');
   return `
     ${htmlWyniki()}
     ${sekcja('tydzien', 'Podsumowanie tygodnia · każda osoba', htmlTydzien([S.me.id].concat(ROLE_GRUPY.map(([r]) => aktywni().filter((p) => p.rola === r && p.id !== S.me.id).map((p) => p.id)).flat())))}
@@ -839,10 +829,7 @@ function htmlPanel() {
     <button class="link-btn" data-idz="settings">Zarządzaj zespołem: role, usuwanie osób</button>`)}
     ${zalegle.length ? sekcja('zalegle', `Zaległe w zespole · ${zalegle.length}`, zalegle.sort(poPriorytecie).map((z) => karta(z)).join(''), true) : ''}
     ${pilne.length ? sekcja('pilne', `Pilne otwarte · ${pilne.length}`, pilne.sort(sortuj).map((z) => karta(z)).join('')) : ''}
-    ${sekcja('kredyty', `Kredyty w toku · ${kWToku.length}`, `<div class="card">${etapyLicz.length ? etapyLicz.map((x) => `<div class="kr-row"><span>czeka na: ${esc(x.e.n)}</span><b>${x.n}</b></div>`).join('') : '<span class="hint">Brak kredytów w toku.</span>'}
-      <button class="link-btn" data-widok="kredyty">Otwórz kredyty</button></div>`)}
-    ${S.kredyty.length ? sekcja('kredyty-zmiany', 'Ostatnie zmiany w kredytach', kredytyZmiany) : ''}
-    ${ostatnie.length ? sekcja('ostatnie', 'Ostatnio zrobione', ostatnie.map((z) => karta(z, { zrobione: true })).join('')) : ''}`;
+`;
 }
 
 // ---------- PODSUMOWANIE TYGODNIA ----------
@@ -899,7 +886,7 @@ function kartaTygodnia(x) {
       </div>
       ${rozbicie ? `<p class="tyg-linia">⭐ ${esc(rozbicie)}</p>` : ''}
       ${zj.lista && zj.lista.length ? `<details class="tyg-zj"><summary>⏳ Zjadacze czasu: ${zj.razem}</summary><ul>${zj.lista.map((z) => `<li><b>${esc(z.tytul)}</b>${z.powod ? ` · ${esc(z.powod)}` : ''}</li>`).join('')}</ul></details>` : ''}
-      ${d.delegacja && d.delegacja.length ? `<div class="tyg-del"><b>👩‍💼 Oddeleguj do Anety (${d.delegacja.length})</b><ul>${d.delegacja.map((z) => `<li><b>${esc(z.tytul)}</b>${z.jak ? ` · ${esc(z.jak)}` : ''}</li>`).join('')}</ul></div>` : ''}
+      ${d.delegacja && d.delegacja.length ? `<details class="tyg-del"><summary><b>👩‍💼 Oddeleguj do Anety (${d.delegacja.length})</b></summary><ul>${d.delegacja.map((z) => `<li><b>${esc(z.tytul)}</b>${z.jak ? ` · ${esc(z.jak)}` : ''}</li>`).join('')}</ul></details>` : ''}
       ${d.bilans_asystentki ? htmlBilansAsystentki(d.bilans_asystentki) : ''}
       ${d.komentarz ? `<p class="tyg-kom">💬 ${esc(d.komentarz)}</p>` : ''}
     </div>`;
@@ -1079,7 +1066,7 @@ function htmlListy() {
   const karta_ = (l) => `<div class="list-card" role="button" tabindex="0" data-id="${esc(l.id)}" data-otworz-liste="${esc(l.id)}">
       <span class="drag" data-drag="1" title="Przeciągnij, żeby zmienić kolejność">⠿</span>
       <span class="list-ico">${esc(l.ikona)}</span>
-      <span class="list-name">${esc(l.nazwa)}<small>${l.szablon ? `szablon · ${wszystkie(l.id)} pozycji` : `${otwarte(l.id)} otwartych`}${l.wspolna ? '' : ' · prywatna'}${l.wlasciciel !== S.me.id ? ' · ' + esc(osoba(l.wlasciciel).imie) : ''}</small></span>
+      <span class="list-name">${esc(l.nazwa)}<small>${l.szablon ? `szablon · ${wszystkie(l.id)} pozycji` : `${otwarte(l.id)} otwartych`}${l.wspolna ? '' : ' · prywatna'}${l.wlasciciel !== S.me.id ? ' · dla ' + esc(osoba(l.wlasciciel).imie) : ''}</small></span>
       <span class="list-count">${l.szablon ? '📑' : otwarte(l.id)}</span>
     </div>`;
   const q = S.szukaj.toLowerCase();
@@ -1125,8 +1112,8 @@ function renderLista() {
     el.dataset.lista = l.id;
     el.innerHTML = `
       <div id="l-head"></div>
-      <form id="l-dodaj" class="quick-add"><input id="l-szybko" maxlength="300" placeholder="+ Dodaj pozycję i naciśnij Enter" autocomplete="off" enterkeyhint="done"><button class="btn-primary" type="submit">Dodaj</button></form>
       <div id="l-dla"></div>
+      <form id="l-dodaj" class="quick-add"><input id="l-szybko" maxlength="300" placeholder="+ Dodaj pozycję i naciśnij Enter" autocomplete="off" enterkeyhint="done"><button class="btn-primary" type="submit">Dodaj</button></form>
       <p class="hint">Enter dodaje pozycję, a pole zostaje gotowe na następną. Kolejność zmienisz, przeciągając uchwyt ⠿. Termin i priorytet ustawisz po kliknięciu pozycji.</p>
       <div id="l-otwarte"></div>
       <div id="l-zrobione"></div>
@@ -1142,24 +1129,32 @@ function renderLista() {
   $('#l-head').innerHTML = `
     <div class="card">
       <div class="list-head"><span class="list-ico big">${esc(l.ikona)}</span><div><h1 class="detail-title">${esc(l.nazwa)}</h1>
-      <small class="hint">${l.szablon ? 'Szablon' : 'Lista'} · ${l.wspolna ? 'wspólna dla zespołu' : 'prywatna'} · ${esc(osoba(l.wlasciciel).imie)}</small></div></div>
+      <small class="hint">${l.szablon ? 'Szablon' : 'Lista'} · ${l.wspolna ? 'wspólna dla zespołu' : 'prywatna'} · dla ${esc(imieJa(osoba(l.wlasciciel)))}</small></div></div>
       ${!l.szablon && zad.length ? `<div class="bar"><i style="width:${proc}%"></i></div><small class="hint">${zrobione.length}/${zad.length} zrobione (${proc}%)</small>` : ''}
     </div>
     ${l.szablon ? '<button class="btn-primary wide" id="l-uzyj">📑 Utwórz listę z tego szablonu</button><div class="spacer"></div>' : ''}`;
   if (!$('#l-otwarte').classList.contains('przeciagam')) {
     $('#l-otwarte').innerHTML = otwarte.map((z) => karta(z, { bezListy: true, uchwyt: true })).join('') || '<div class="empty">Pusto. Dodaj pierwszą pozycję powyżej.</div>';
   }
-  // dla kogo idą nowe pozycje tej listy (zapamiętane na urządzeniu) + przekazanie całej listy jednym kliknięciem
+  // dla kogo jest lista: właściciel w bazie (menedżer albo właściciel zmienia), nowe pozycje idą do tej osoby; + przekazanie całej listy
   const osoby = osobyDoZadan();
   if (!l.szablon && osoby.length > 1) {
     const dla = dlaListy(l);
     const doPrzekazania = otwarte.filter((z) => z.przypisany !== dla && mogePrzekazac(z));
-    $('#l-dla').innerHTML = `<div class="sub">Nowe pozycje dla</div>
+    $('#l-dla').innerHTML = `<div class="sub">Lista dla</div>
       <div class="chips">${osoby.map((p) => `<button type="button" class="chip${dla === p.id ? ' on' : ''}" data-dla-listy="${esc(p.id)}">${esc(imieJa(p))}</button>`).join('')}</div>
       ${doPrzekazania.length ? `<button type="button" class="btn-ghost wide" id="l-przekaz-wszystkie">⇄ Przekaż ${doPrzekazania.length} otwarte: ${esc(osoba(dla).imie)}</button>` : ''}`;
     $('#l-dla').onclick = async (e) => {
       const b = e.target.closest('[data-dla-listy]');
-      if (b) { ustawDlaListy(l, b.dataset.dlaListy); renderLista(); return; }
+      if (b) {
+        const kto = b.dataset.dlaListy;
+        if (!jestemAdminem()) { ustawDlaListy(l, kto); renderLista(); return; } // zmiana właściciela w bazie tylko menedżer (RLS)
+        ustawDlaListy(l, '');
+        try { const w = await store.zapiszListe({ id: l.id, wlasciciel: kto }, false); Object.assign(l, w, { wlasciciel: kto }); toast(`Lista dla: ${osoba(kto).imie}`); }
+        catch (err) { toast('Nie zmieniono: ' + err.message); }
+        renderLista();
+        return;
+      }
       if (e.target.closest('#l-przekaz-wszystkie')) {
         if (!confirm(`Przekazać otwarte pozycje z listy „${l.nazwa}” (${doPrzekazania.length}) osobie: ${osoba(dla).imie}?`)) return;
         doPrzekazania.forEach((z) => zmienZadanie(z.id, { przypisany: dla, w_kalendarzu: false }, `Przekazano: ${osoba(z.przypisany).imie} → ${osoba(dla).imie}`, () => {}));
@@ -1195,7 +1190,8 @@ function renderLista() {
 const dlaListy = (l) => {
   let id = null;
   try { id = localStorage.getItem('rm-lista-dla:' + l.id); } catch (e) { /* tryb prywatny */ }
-  return osobyDoZadan().some((p) => p.id === id) ? id : S.me.id;
+  const ok = (x) => osobyDoZadan().some((p) => p.id === x);
+  return ok(id) ? id : ok(l.wlasciciel) ? l.wlasciciel : S.me.id;
 };
 const ustawDlaListy = (l, id) => { try { localStorage.setItem('rm-lista-dla:' + l.id, id); } catch (e) { /* tryb prywatny */ } };
 // seryjne dodawanie: pole czyści się od razu i zostaje aktywne, pozycja pojawia się bez czekania na bazę
@@ -1594,7 +1590,46 @@ function htmlWyniki() {
         <span class="wynik-kto">${nazwa}</span>${okresy.map(([, od, doD]) => { const w = wynikOkresu(od, doD, id); return `<span class="wynik-pct">${kom(w)}${pasek(w)}</span>`; }).join('')}</button>`;
     }).join('')}
     </div>
-    <p class="hint">Procent = zrobione z zaplanowanych. Dni bez zadań się nie liczą (–), przyszłe dni też nie, a dzisiejsze zadania wchodzą do dłuższych okresów po odhaczeniu albo po końcu dnia. Kliknij wiersz, żeby zobaczyć podsumowanie dnia tej osoby.</p></div>`;
+    <p class="hint">Procent = zrobione z zaplanowanych. Dni bez zadań się nie liczą (–), przyszłe dni też nie, a dzisiejsze zadania wchodzą do dłuższych okresów po odhaczeniu albo po końcu dnia. Kliknij wiersz, żeby zobaczyć podsumowanie dnia tej osoby.</p>
+    ${htmlEfektywnosc(osoby, okresy)}</div>`;
+}
+// efektywność: czy zrobione mieściło się w terminie i ile roboty szło poza planem (zrobione bez terminu)
+function efektywnosc(od, doD, osobaId) {
+  const zr = robocze().filter((z) => z.status === 'zrobione' && tsDzien(z.zrobione_kiedy) >= od && tsDzien(z.zrobione_kiedy) <= doD
+    && (!osobaId || (z.zrobione_przez || z.przypisany) === osobaId));
+  const zTerminem = zr.filter((z) => z.termin);
+  const wTerminie = zTerminem.filter((z) => tsDzien(z.zrobione_kiedy) <= z.termin).length;
+  return {
+    zrobione: zr.length, poTerminie: zTerminem.length - wTerminie, bezPlanu: zr.length - zTerminem.length,
+    wTerminie: zTerminem.length ? Math.round((100 * wTerminie) / zTerminem.length) : null,
+    planowane: zr.length ? Math.round((100 * zTerminem.length) / zr.length) : null
+  };
+}
+function htmlEfektywnosc(osoby, okresy) {
+  const [, od7, do7] = okresy[1], [nM, odM, doM] = okresy[2];
+  const pct = (v, dobry) => (v == null ? '<b class="muted">–</b>' : `<b class="${v >= dobry ? 'green' : v < dobry - 30 ? 'red' : ''}">${v}%</b>`);
+  const wiersze = osoby.map((id) => {
+    const t = efektywnosc(od7, do7, id), m = efektywnosc(odM, doM, id);
+    const nazwa = id ? `${avatar(id, true)} ${esc(osoba(id).imie)}${id === S.me.id ? ' (ja)' : ''}` : '👥 <b>Cały zespół</b>';
+    const pusto = (x) => !x.zrobione;
+    if (pusto(t) && pusto(m)) return `<div class="wynik-row"><span class="wynik-kto">${nazwa}</span>${'<span class="wynik-pct"><b class="muted">–</b><small>brak</small></span>'.repeat(4)}</div>`;
+    return `<div class="wynik-row${id ? '' : ' razem'}"><span class="wynik-kto">${nazwa}</span>
+      <span class="wynik-pct">${pct(t.wTerminie, 90)}<small>${t.poTerminie ? `po terminie ${t.poTerminie}` : 'w terminie'}</small></span>
+      <span class="wynik-pct">${pct(m.wTerminie, 90)}<small>${m.poTerminie ? `po terminie ${m.poTerminie}` : 'w terminie'}</small></span>
+      <span class="wynik-pct">${pct(t.planowane, 70)}<small>bez planu ${t.bezPlanu} z ${t.zrobione}</small></span>
+      <span class="wynik-pct">${pct(m.planowane, 70)}<small>bez planu ${m.bezPlanu} z ${m.zrobione}</small></span></div>`;
+  }).join('');
+  const ja = efektywnosc(od7, do7, S.me.id);
+  const wniosek = !ja.zrobione ? ''
+    : ja.wTerminie != null && ja.wTerminie < 80 ? `W 7 dni ${ja.poTerminie} z ${ja.zrobione - ja.bezPlanu} zaplanowanych zadań zrobiłeś po terminie. Plan jest za ciasny albo terminy są na wyrost.`
+    : ja.planowane != null && ja.planowane < 60 ? `Tylko ${ja.planowane}% tego, co zrobiłeś w 7 dni, było w planie. Reszta wpada z boku i zjada czas na zaplanowane rzeczy.`
+    : 'Terminy trzymasz i większość pracy jest zaplanowana. Teraz liczy się, czy w planie są pozyski i transakcje (podsumowanie tygodnia).';
+  return `<div class="card-title" style="margin-top:14px">Efektywność</div>
+    <div class="wyniki-scroll">
+    <div class="wynik-row head"><span></span><span>W terminie · 7 dni</span><span>W terminie · ${esc(nM)}</span><span>Z planu · 7 dni</span><span>Z planu · ${esc(nM)}</span></div>
+    ${wiersze}</div>
+    ${wniosek ? `<p class="tyg-kom">💬 ${esc(wniosek)}</p>` : ''}
+    <p class="hint">W terminie = zrobione najpóźniej w dniu terminu. Z planu = jaka część zrobionych zadań miała termin; reszta to robota spoza planu. Przesunięty termin liczy się od nowej daty.</p>`;
 }
 function pokazPodsumowanie(d, osobaId) {
   // konkretna osoba z panelu; bez wskazania: menedżer widzi zespół, reszta siebie

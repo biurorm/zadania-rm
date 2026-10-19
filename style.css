@@ -620,3 +620,4 @@ button.group-title.zwin .drag { margin: 0 2px 0 -6px; padding: 4px 0; font-size:
 .tyg-bilans.brak { border-left-color: #999; }
 .tyg-bilans p { margin: 6px 0 2px; }
 .tyg-bilans small { opacity: .75; }
+.tyg-del summary { cursor: pointer; }
