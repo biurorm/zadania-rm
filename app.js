@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 30;
+const WERSJA = 31;
 
 // adres z linku z maila (zmiana hasła) zapamiętany, zanim Supabase go wyczyści
 const LINK_HASLA = location.hash + '&' + location.search;
@@ -867,14 +867,28 @@ function tydzienPodNaglowkiem(pn, osobaId) {
   const x = (S.podsumowania || []).find((p) => p.osoba === osobaId && p.tydzien === pn);
   if (!x) return '';
   const d = x.dane || {};
-  const zj = (d.zjadacze || {}).razem || 0;
-  return `<details class="tyg-pod"><summary>📊 Podsumowanie tygodnia: ${d.zrobione || 0} zrobionych · ${(d.wazne || {}).razem || 0} ważnych · ${zj} mogło poczekać</summary>${kartaTygodnia(x)}</details>`;
+  const zj = (d.zjadacze || {}).razem || 0, pl = d.plan || {};
+  const linia = osoba(osobaId).rola === 'asystentka'
+    ? `${d.zrobione || 0} zrobionych${pl.zaplanowane ? ` · plan ${pl.procent}%` : ''}`
+    : `${d.zrobione || 0} zrobionych · ${(d.wazne || {}).razem || 0} ważnych · ${zj} mogło poczekać`;
+  return `<details class="tyg-pod"><summary>📊 Podsumowanie tygodnia: ${linia}</summary>${kartaTygodnia(x)}</details>`;
 }
 function kartaTygodnia(x) {
     const d = x.dane || {}, w = d.wazne || {}, zj = d.zjadacze || { razem: 0, lista: [] }, pl = d.plan || {};
     const rozbicie = ['akty', 'umowy', 'pozyski', 'rezerwacje', 'przedwstępne'].filter((k) => w[k]).map((k) => `${k} ${w[k]}`).join(', ');
+    const naglowek = `<div class="person-top">${avatar(x.osoba)}<div><b>${esc(osoba(x.osoba).imie)}</b><small>${pl.zaplanowane ? `plan tygodnia ${pl.zrobione}/${pl.zaplanowane} · ${pl.procent}%` : 'bez zadań z terminem w tym tygodniu'}</small></div></div>`;
+    // asystentka: same liczby biura i komentarz do niej; ważne i zjadacze czasu to miara menedżera
+    if (osoba(x.osoba).rola === 'asystentka') return `<div class="person tyg">${naglowek}
+      <div class="person-nums tyg-nums">
+        <span><b class="green">${d.zrobione || 0}</b>zrobione</span>
+        <span><b>${pl.zaplanowane ? pl.procent + '%' : '–'}</b>plan</span>
+      </div>
+      ${d.wskazowki ? [['dobrze', '✅ Dobrze ci poszło'], ['skup_sie', '🎯 Na tym się skup'], ['za_malo', '⚠️ Tego było za mało']]
+        .filter(([k]) => d.wskazowki[k]).map(([k, t]) => `<p class="tyg-kom"><b>${t}:</b> ${esc(d.wskazowki[k])}</p>`).join('') : ''}
+      ${d.komentarz ? `<p class="tyg-kom">💬 ${esc(d.komentarz)}</p>` : ''}
+    </div>`;
     return `<div class="person tyg">
-      <div class="person-top">${avatar(x.osoba)}<div><b>${esc(osoba(x.osoba).imie)}</b><small>${pl.zaplanowane ? `plan tygodnia ${pl.zrobione}/${pl.zaplanowane} · ${pl.procent}%` : 'bez zadań z terminem w tym tygodniu'}</small></div></div>
+      ${naglowek}
       <div class="person-nums tyg-nums">
         <span><b class="green">${d.zrobione || 0}</b>zrobione</span>
         <span><b>${w.razem || 0}</b>ważne</span>
