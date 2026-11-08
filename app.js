@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 38;
+const WERSJA = 39;
 
 // adres z linku z maila (zmiana hasła) zapamiętany, zanim Supabase go wyczyści
 const LINK_HASLA = location.hash + '&' + location.search;
@@ -677,7 +677,8 @@ function renderGrupy(zadania, pusto) {
   const reszta = [];
   zadania.forEach((z) => {
     const l = z.lista_id && lista(z.lista_id);
-    if (z.status === 'zrobione') { if (l) (odhaczone[l.id] = odhaczone[l.id] || []).push(z); }
+    // w Moich zrobione nie wracają pod listy (od v39, są w zakładce Zrobione)
+    if (z.status === 'zrobione') { if (l && S.widok !== 'moje') (odhaczone[l.id] = odhaczone[l.id] || []).push(z); }
     else if (l && !z.termin) (naListach[l.id] = naListach[l.id] || []).push(z);
     else reszta.push(z);
   });
