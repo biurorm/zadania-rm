@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 40;
+const WERSJA = 41;
 
 // adres z linku z maila (zmiana hasła) zapamiętany, zanim Supabase go wyczyści
 const LINK_HASLA = location.hash + '&' + location.search;
@@ -402,7 +402,7 @@ const S = {
   widok: null, filtrOsoba: '', szukaj: '', filtrKredyt: 'w_toku',
   kalMiesiac: null, kalDzien: dzis(),
   otwarte: null, edycja: null, form: {}, kredyt: null, kForm: {},
-  ekrany: [], offline: false, podsumowania: [], tydzien: null
+  ekrany: [], offline: false, podsumowania: [], tydzien: null, dzienTab: {}, miesiacOceny: null
 };
 
 const osoba = (id) => S.osoby.find((p) => p.id === id) || { id, imie: '?', kolor: '#a8a29e', rola: '' };
@@ -591,12 +591,12 @@ function renderSzybko() {
   const widac = ['moje', 'wszystkie'].includes(S.widok) && !!S.me;
   el.style.display = widac ? '' : 'none';
   if (!widac) return;
-  const ludzie = osobyDoZadan();
-  if (!ludzie.some((p) => p.id === S.qKto)) S.qKto = S.me.id;
+  const ludzie = S.widok === 'wszystkie' && jestemAdminem() ? osobyDoZadan().filter((p) => p.id !== S.me.id) : osobyDoZadan();
+  if (!ludzie.some((p) => p.id === S.qKto)) S.qKto = S.widok === 'wszystkie' && ludzie.length ? ludzie[0].id : S.me.id;
   if (S.qKiedy === undefined) S.qKiedy = 'dzis';
   const kiedy = [['dzis', 'Dziś'], ['jutro', 'Jutro'], ['', 'Bez terminu']];
   // w Moich bez wyboru osoby (zadanie zawsze dla mnie), przekazanie innym we Wszystkich (od v40)
-  $('#q-opcje').innerHTML = (ludzie.length > 1 && S.widok !== 'moje' ? `<div class="chips chips-scroll q-kto">${ludzie.map((p) =>
+  $('#q-opcje').innerHTML = (ludzie.length > (S.widok === 'wszystkie' ? 0 : 1) && S.widok !== 'moje' ? `<div class="chips chips-scroll q-kto">${ludzie.map((p) =>
     `<button type="button" class="chip${S.qKto === p.id ? ' on' : ''}" data-q-kto="${esc(p.id)}">${avatar(p.id, true)} ${esc(imieJa(p))}</button>`).join('')}</div>` : '')
     + `<div class="q-kiedy">${kiedy.map(([k, n]) => `<button type="button" class="pill${S.qKiedy === k ? ' on' : ''}" data-q-kiedy="${k}">${n}</button>`).join('')}</div>`;
 }
@@ -714,8 +714,11 @@ function renderFiltrOsob() {
   const el = $('#osoby-filtr');
   if (!jestemAdminem() || ['moje', 'panel', 'kredyty', 'listy', 'gantt'].includes(S.widok)) { el.style.display = 'none'; return; }
   el.style.display = '';
+  // we Wszystkich menedżera nie ma (swoje widzi w Moich), zostaje asystentka i agenci (od v41)
+  const ludzieFiltr = S.widok === 'wszystkie' ? osobyDoZadan().filter((p) => p.id !== S.me.id) : aktywni();
+  if (S.widok === 'wszystkie' && S.filtrOsoba === S.me.id) S.filtrOsoba = '';
   el.innerHTML = `<button class="chip${S.filtrOsoba ? '' : ' on'}" data-osoba="">Wszyscy</button>` +
-    aktywni().map((p) => `<button class="chip${S.filtrOsoba === p.id ? ' on' : ''}" data-osoba="${esc(p.id)}">${avatar(p.id, true)} ${esc(p.imie)}</button>`).join('');
+    ludzieFiltr.map((p) => `<button class="chip${S.filtrOsoba === p.id ? ' on' : ''}" data-osoba="${esc(p.id)}">${avatar(p.id, true)} ${esc(p.imie)}</button>`).join('');
 }
 function renderZakladki() {
   const lista = zakladki();
@@ -746,7 +749,8 @@ function renderMain() {
   if (S.widok === 'cykliczne') { v.innerHTML = htmlCykliczne(); return; }
   const moje = S.widok === 'moje';
   const tylkoJa = moje || !jestemAdminem();
-  const kogo = (z) => (tylkoJa ? z.przypisany === S.me.id : !S.filtrOsoba || z.przypisany === S.filtrOsoba);
+  const bezMnie = S.widok === 'wszystkie' && jestemAdminem();
+  const kogo = (z) => (tylkoJa ? z.przypisany === S.me.id : (!bezMnie || z.przypisany !== S.me.id) && (!S.filtrOsoba || z.przypisany === S.filtrOsoba));
   const zakres = robocze().filter(kogo).filter(pasuje);
   renderStats(zakres);
   if (S.widok === 'kalendarz') { v.innerHTML = htmlKalendarz(zakres); return; }
@@ -767,24 +771,201 @@ function renderMain() {
       <button class="btn-link" data-zwin-wszystkie="1">▸ Zwiń wszystkie</button></div>` : '';
     // podsumowanie tygodnia pod nagłówkiem tygodnia: moje, a u menedżera osoby wybranej w filtrze
     const ktoTydzien = jestemAdminem() ? S.filtrOsoba || S.me.id : S.me.id;
-    v.innerHTML = pasek + Object.entries(dni).map(([d, l]) => {
+    // oceny dni, tygodni i miesiąca: osoba z filtra, u menedżera bez filtra każda osoba osobno
+    const ktoOceny = jestemAdminem() ? (S.filtrOsoba ? [S.filtrOsoba] : osobyDoZadan().map((p) => p.id)) : [S.me.id];
+    v.innerHTML = htmlMiesiacKarta(ktoOceny, 'zrobione') + pasek + Object.entries(dni).map(([d, l]) => {
       const pn = d ? plusDni(d, -((parseYmd(d).getDay() + 6) % 7)) : '';
       const nowyTydzien = pn !== tydzien; tydzien = pn;
       const w = podsumowanieDnia(d, S.filtrOsoba || null);
       const wynik = w.plan ? `<span class="day-score ${w.procent >= 80 ? 'ok' : w.procent >= 50 ? 'mid' : 'bad'}">plan ${w.zrobionePlan}/${w.plan} · ${w.procent}%</span>` : '';
-      return (nowyTydzien && pn ? `<div class="week-sep">Tydzień od ${parseYmd(pn).getDate()} ${MIESIACE_D[parseYmd(pn).getMonth()]}</div>${tydzienPodNaglowkiem(pn, ktoTydzien)}` : '')
+      return (nowyTydzien && pn ? `<div class="week-sep">Tydzień od ${parseYmd(pn).getDate()} ${MIESIACE_D[parseYmd(pn).getMonth()]}</div>${htmlOcenaTygodnia(pn, ktoOceny)}${tydzienPodNaglowkiem(pn, ktoTydzien)}` : '')
         + (() => {
           const domZw = d !== dzisD;
           const zw = czyZwiniete('zrobione:' + d, domZw);
           return `<div class="day-block${zw ? ' zwinieta' : ''}"><div class="day-title">
             <button class="day-zwin" data-zwin="zrobione:${d}" data-domyslnie="${domZw ? 1 : 0}" aria-expanded="${!zw}"><span class="strzalka">${zw ? '▸' : '▾'}</span> ${esc(naglowekDnia(d))}</button>
-            <button class="day-right" data-podsum="${d}" title="Podsumowanie dnia">${wynik}<b>${l.length} ✓</b> <span class="day-podsum">📊</span></button></div>`
-            + (zw ? '' : l.map((z) => karta(z, { zrobione: true })).join('')) + '</div>';
+            <button class="day-right" data-podsum="${d}" title="Podsumowanie dnia">${ocenaZnaczek(d, ktoOceny)}${wynik}<b>${l.length} ✓</b> <span class="day-podsum">📊</span></button></div>`
+            + (zw ? '' : zakladkiDnia(d, l, ktoOceny)) + '</div>';
         })();
     }).join('') || '<div class="empty">Nic jeszcze nie zostało odhaczone w ostatnich 4 miesiącach.</div>';
     return;
   }
   v.innerHTML = renderGrupy(zakres, moje ? 'Masz czysto. Nowe zadanie dodasz przyciskiem +' : 'Brak otwartych zadań.');
+}
+
+// ---------- OCENA DNIA, TYGODNIA I MIESIĄCA (od v41) ----------
+// Liczy aplikacja regułami, bez AI i bez przebiegów w chmurze (decyzja Rafała 08.11.2026).
+// Sam procent planu nie wystarcza (prawie zawsze 100%), więc ocena patrzy też na ruch w transakcjach,
+// pracę z klientem, pilne, robotę wpisaną tego samego dnia i ile godzin zadań było w aplikacji.
+const WAZNE_RE = [['akt', /\bakt(u|em|y|ów|ach)?\b|notariu/i], ['przedwstępna', /przedwst/i], ['rezerwacja', /rezerwac/i],
+  ['pozysk', /pozysk|wy[lł][aą]czno|umow\w* (o )?po[sś]redn/i], ['umowa', /podpis\w* umow|umow\w* najm/i]];
+const KLIENT_TYPY = ['teren', 'prezentacja', 'spotkanie'];
+const wazneTyp = (z) => { if (z.typ === 'akt') return 'akt'; for (const [k, re] of WAZNE_RE) if (re.test(z.tytul || '')) return k; return z.typ === 'umowa' ? 'umowa' : ''; };
+const minutyZad = (z) => (TYPY.find((t) => t.k === z.typ) || { min: 30 }).min;
+const skrot = (t, n = 38) => (t.length > n ? t.slice(0, n - 1).trim() + '…' : t);
+const tytuly = (l, n = 2) => l.slice(0, n).map((z) => `„${skrot(z.tytul)}”`).join(', ') + (l.length > n ? ` i ${l.length - n} więcej` : '');
+const liczbaPL = (x) => String(x).replace('.', ',');
+const kolorOceny = (o) => (o >= 8 ? 'ok' : o >= 6 ? 'mid' : 'bad');
+const ROTA_PORADY = {
+  pilne: 'Pilne zostają na koniec dnia. Rób je rano, przed resztą.',
+  niez: 'Plan jest za duży albo za dużo wpada z boku. Planuj mniej, ale do końca.',
+  ruch: 'Za mało dni z ruchem w transakcjach i z klientem. Zablokuj w kalendarzu stały czas na pozyski i prezentacje.',
+  doskoku: 'Dużo pracy wpada z doskoku, wpisanej tego samego dnia. Wieczorem wpisz plan na następny dzień.',
+  malo: 'W część dni mało wpisanych zadań. Wpisuj wszystko, wtedy ocena jest prawdziwa.',
+  cykl: 'Stałe zadania wypadają. Zrób je jako pierwsze rano.'
+};
+const NAZWY_PROBLEMOW = { pilne: 'pilne zostawały', niez: 'niezrobione z planu', ruch: 'brak ruchu w transakcjach', doskoku: 'praca z doskoku', malo: 'mało wpisanych zadań', cykl: 'stałe zadania wypadały' };
+
+function ocenaDnia(d, osobaId) {
+  const p = osoba(osobaId) || {};
+  const asyst = p.rola === 'asystentka';
+  const plan = robocze().filter((z) => z.termin === d && z.przypisany === osobaId);
+  const zrob = robocze().filter((z) => z.status === 'zrobione' && tsDzien(z.zrobione_kiedy) === d && (z.zrobione_przez || z.przypisany) === osobaId);
+  if (!plan.length && !zrob.length) return null;
+  const zrPlan = plan.filter((z) => z.status === 'zrobione');
+  const niez = plan.filter((z) => z.status !== 'zrobione').sort(poPriorytecie);
+  const procent = plan.length ? Math.round((100 * zrPlan.length) / plan.length) : null;
+  const wazne = zrob.filter((z) => wazneTyp(z));
+  const klient = zrob.filter((z) => !wazneTyp(z) && KLIENT_TYPY.includes(z.typ));
+  const pilneNie = niez.filter((z) => (z.priorytet || 3) <= 1);
+  const niezReszta = niez.filter((z) => (z.priorytet || 3) > 1);
+  const pilneZr = zrob.filter((z) => (z.priorytet || 3) <= 1).length;
+  const nadrobione = zrob.filter((z) => z.termin && z.termin < d).length;
+  const doskoku = zrob.filter((z) => !z.termin || tsDzien(z.utworzono) === d).length;
+  const cykl = plan.filter((z) => z.powtarzanie), cyklNie = niez.filter((z) => z.powtarzanie);
+  const godz = Math.round(zrob.reduce((a, z) => a + minutyZad(z), 0) / 30) / 2;
+
+  let o = 5;
+  if (procent != null) o += procent >= 90 ? 2 : procent >= 70 ? 1 : procent < 50 ? -2 : 0;
+  if (asyst) o += cykl.length && !cyklNie.length ? 1 : 0;
+  else o += wazne.length >= 2 ? 2 : wazne.length || klient.length ? 1 : 0;
+  if (pilneNie.length) o -= Math.min(2, pilneNie.length); else if (pilneZr) o += 1;
+  if (godz >= 6) o += 1; else if (godz < 2) o -= 1;
+  if (zrob.length >= 5 && doskoku / zrob.length > 0.6) o -= 1;
+  o = Math.max(1, Math.min(10, o));
+
+  const dobre = [], lepiej = [], kody = [];
+  if (plan.length && procent === 100) dobre.push(`Cały plan zrobiony: ${zrPlan.length} z ${plan.length}.`);
+  else if (procent != null && procent >= 80) dobre.push(`Plan zrobiony w ${procent}% (${zrPlan.length} z ${plan.length}).`);
+  if (wazne.length) dobre.push(`Ruch w transakcjach: ${tytuly(wazne)}.`);
+  if (klient.length) dobre.push(`Praca z klientem i w terenie: ${klient.length}.`);
+  if (pilneZr && !pilneNie.length) dobre.push(`Pilne zrobione: ${pilneZr}.`);
+  if (nadrobione) dobre.push(`Nadrobione zaległe: ${nadrobione}.`);
+  if (asyst && cykl.length && !cyklNie.length) dobre.push(`Stałe zadania dnia zrobione (${cykl.length}).`);
+  if (godz >= 6) dobre.push(`Pełny dzień: ok. ${liczbaPL(godz)} h zadań w aplikacji.`);
+
+  if (pilneNie.length) { lepiej.push(`Pilne zostało niezrobione: ${tytuly(pilneNie)}.`); kody.push('pilne'); }
+  if (asyst && cyklNie.length) { lepiej.push(`Stałe zadania niezrobione: ${tytuly(cyklNie)}.`); kody.push('cykl'); }
+  if (niezReszta.length && !(asyst && niezReszta.every((z) => z.powtarzanie))) { lepiej.push(`Nie zrobione z planu: ${niezReszta.length} (${tytuly(niezReszta)}).`); kody.push('niez'); }
+  if (!asyst && !wazne.length && !klient.length) { lepiej.push('Brak ruchu w transakcjach i spotkań z klientem. Na następny dzień zaplanuj choć jeden telefon do pozysku albo prezentację.'); kody.push('ruch'); }
+  if (zrob.length >= 5 && doskoku / zrob.length > 0.6) { lepiej.push(`${doskoku} z ${zrob.length} zadań wpadło tego samego dnia albo bez terminu. Plan warto wpisać dzień wcześniej.`); kody.push('doskoku'); }
+  if (godz < 2) { lepiej.push(`Mało zadań w aplikacji (ok. ${liczbaPL(godz)} h). Jeśli pracy było więcej, warto ją wpisywać, inaczej ocena jest zaniżona.`); kody.push('malo'); }
+
+  return { d, osobaId, ocena: o, procent, plan: plan.length, zrPlan: zrPlan.length, zrob: zrob.length, godz, wazne, klient: klient.length,
+    dobre: dobre.slice(0, 3), lepiej: lepiej.slice(0, 3), kody };
+}
+// ocena dnia liczy się dopiero po jego końcu
+const dzienZakonczony = (d) => d < dzis();
+function ocenyDnia(d, ids) { return dzienZakonczony(d) ? ids.map((id) => ocenaDnia(d, id)).filter(Boolean) : []; }
+function ocenaZnaczek(d, ids) {
+  const l = ocenyDnia(d, ids);
+  if (!l.length) return '';
+  const sr = Math.round(l.reduce((a, x) => a + x.ocena, 0) / l.length);
+  return `<span class="day-score ocena ${kolorOceny(sr)}" title="Ocena dnia">⭐ ${sr}/10</span>`;
+}
+function htmlOcenaOsobyDnia(x, z_imieniem) {
+  return `<div class="ocena-dzien">
+    <div class="ocena-gora">${z_imieniem ? `${avatar(x.osobaId, true)} <b>${esc(osoba(x.osobaId).imie)}</b>` : '<b>Ocena dnia</b>'}<span class="ocena-duza ${kolorOceny(x.ocena)}">${x.ocena}/10</span></div>
+    <div class="ocena-liczby">${x.plan ? `plan ${x.zrPlan}/${x.plan}` : 'bez planu'} · zrobione ${x.zrob} · ok. ${liczbaPL(x.godz)} h${x.wazne.length ? ` · transakcje ${x.wazne.length}` : ''}${x.klient ? ` · z klientem ${x.klient}` : ''}</div>
+    <p class="ocena-dobre"><b>✅ Co było dobre</b></p>${x.dobre.length ? `<ul>${x.dobre.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : '<p class="hint">Nic szczególnego w liczbach.</p>'}
+    <p class="ocena-lepiej"><b>🎯 Co można zrobić lepiej</b></p>${x.lepiej.length ? `<ul>${x.lepiej.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : '<p class="hint">Nic do poprawy w liczbach.</p>'}
+  </div>`;
+}
+function zakladkiDnia(d, lista_, ids) {
+  const karty = lista_.map((z) => karta(z, { zrobione: true })).join('');
+  if (!dzienZakonczony(d)) return karty;
+  const oceny = ocenyDnia(d, ids);
+  if (!oceny.length) return karty;
+  const tab = S.dzienTab[d] || 'zad';
+  return `<div class="dzien-taby"><button class="chip chip-mala${tab === 'zad' ? ' on' : ''}" data-dzien-tab="${d}|zad">✓ Zadania (${lista_.length})</button>
+      <button class="chip chip-mala${tab === 'pods' ? ' on' : ''}" data-dzien-tab="${d}|pods">📝 Podsumowanie</button></div>`
+    + (tab === 'pods' ? `<div class="card ocena-karta">${oceny.map((x) => htmlOcenaOsobyDnia(x, oceny.length > 1 || ids.length > 1)).join('')}
+      <p class="hint">Ocena liczona przez aplikację z zadań tego dnia: plan, pilne, ruch w transakcjach, praca z klientem, ile pracy wpadło z doskoku i ile godzin zadań było wpisanych.</p></div>` : karty);
+}
+// okres = tydzień albo miesiąc, z ocen zakończonych dni
+function ocenaOkresu(od, doD, osobaId) {
+  const dni = [];
+  for (let d = od; d <= doD && dzienZakonczony(d); d = plusDni(d, 1)) { const x = ocenaDnia(d, osobaId); if (x) dni.push(x); }
+  if (!dni.length) return null;
+  const suma = (f) => dni.reduce((a, x) => a + f(x), 0);
+  const kody = {};
+  dni.forEach((x) => x.kody.forEach((k) => { kody[k] = (kody[k] || 0) + 1; }));
+  const problemy = Object.entries(kody).sort((a, b) => b[1] - a[1]);
+  const wazneRodzaje = {};
+  dni.forEach((x) => x.wazne.forEach((z) => { const k = wazneTyp(z); wazneRodzaje[k] = (wazneRodzaje[k] || 0) + 1; }));
+  const posort = [...dni].sort((a, b) => b.ocena - a.ocena);
+  return { dni, srednia: Math.round((10 * suma((x) => x.ocena)) / dni.length) / 10, plan: suma((x) => x.plan), zrPlan: suma((x) => x.zrPlan),
+    zrob: suma((x) => x.zrob), godz: suma((x) => x.godz), wazne: suma((x) => x.wazne.length), klient: suma((x) => x.klient), wazneRodzaje,
+    najlepszy: posort[0], najgorszy: posort[posort.length - 1], problemy,
+    porada: problemy.length && problemy[0][1] >= 2 ? ROTA_PORADY[problemy[0][0]] : 'Równy okres, bez powtarzających się problemów. Utrzymaj rytm.' };
+}
+const DNI_KROTKO = ['nd', 'pn', 'wt', 'śr', 'cz', 'pt', 'sb'];
+function htmlOkres(o, osobaId, z_imieniem, tytul) {
+  const plan = o.plan ? `${Math.round((100 * o.zrPlan) / o.plan)}% (${o.zrPlan}/${o.plan})` : 'brak';
+  const rodzaje = Object.entries(o.wazneRodzaje).map(([k, n]) => `${k} ${n}`).join(', ');
+  return `<div class="ocena-dzien">
+    <div class="ocena-gora">${z_imieniem ? `${avatar(osobaId, true)} <b>${esc(osoba(osobaId).imie)}</b>` : `<b>${esc(tytul)}</b>`}<span class="ocena-duza ${kolorOceny(o.srednia)}">${liczbaPL(o.srednia)}/10</span></div>
+    <div class="ocena-pasek">${o.dni.map((x) => `<span class="ocena-dzien-chip ${kolorOceny(x.ocena)}" title="${esc(naglowekDnia(x.d))}">${DNI_KROTKO[parseYmd(x.d).getDay()]} ${parseYmd(x.d).getDate()}<b>${x.ocena}</b></span>`).join('')}</div>
+    <div class="ocena-liczby">dni pracy ${o.dni.length} · plan ${plan} · zrobione ${o.zrob} · ok. ${liczbaPL(o.godz)} h${osoba(osobaId).rola === 'asystentka' ? '' : ` · transakcje ${o.wazne}${rodzaje ? ` (${esc(rodzaje)})` : ''} · z klientem ${o.klient}`}</div>
+    <p class="ocena-dobre"><b>✅ Najlepszy dzień:</b> ${esc(naglowekDnia(o.najlepszy.d))}, ${o.najlepszy.ocena}/10${o.najlepszy.dobre[0] ? `. ${esc(o.najlepszy.dobre[0])}` : ''}</p>
+    ${o.najgorszy.d !== o.najlepszy.d ? `<p class="ocena-lepiej"><b>⚠️ Najsłabszy dzień:</b> ${esc(naglowekDnia(o.najgorszy.d))}, ${o.najgorszy.ocena}/10${o.najgorszy.lepiej[0] ? `. ${esc(o.najgorszy.lepiej[0])}` : ''}</p>` : ''}
+    ${o.problemy.length ? `<p class="ocena-lepiej"><b>🔁 Powtarzało się:</b> ${o.problemy.slice(0, 3).map(([k, n]) => `${NAZWY_PROBLEMOW[k]} (${n} ${n === 1 ? 'dzień' : 'dni'})`).join(', ')}</p>` : ''}
+    <p class="tyg-kom">🎯 ${esc(o.porada)}</p>
+  </div>`;
+}
+function htmlOcenaTygodnia(pn, ids) {
+  const nd = plusDni(pn, 6);
+  const wyniki = ids.map((id) => [id, ocenaOkresu(pn, nd, id)]).filter(([, o]) => o);
+  if (!wyniki.length) return '';
+  const sr = Math.round((10 * wyniki.reduce((a, [, o]) => a + o.srednia, 0)) / wyniki.length) / 10;
+  const doDzis = nd >= dzis() ? ', do wczoraj' : '';
+  return `<details class="tyg-pod ocena-tyg"><summary>⭐ Ocena tygodnia z ocen dni: ${liczbaPL(sr)}/10${doDzis}</summary>
+    <div class="card ocena-karta">${wyniki.map(([id, o]) => htmlOkres(o, id, ids.length > 1, 'Tydzień')).join('')}</div></details>`;
+}
+// miesiące do wyboru: bieżący (do wczoraj) i dwa zakończone (aplikacja trzyma ok. 120 dni zadań)
+function miesiaceOceny() {
+  const t = parseYmd(dzis()), l = [];
+  for (let i = 0; i < 3; i++) { const x = new Date(t.getFullYear(), t.getMonth() - i, 1); l.push(ymd(x).slice(0, 7)); }
+  return l;
+}
+function htmlMiesiac(ids) {
+  const lista_ = miesiaceOceny();
+  const domyslny = lista_[1]; // ostatni zakończony miesiąc
+  const m = lista_.includes(S.miesiacOceny) ? S.miesiacOceny : domyslny;
+  const [y, mm] = m.split('-').map(Number);
+  const od = `${m}-01`, doD = ymd(new Date(y, mm, 0));
+  const nazwa = (k) => { const [a, b] = k.split('-').map(Number); return `${MIESIACE[b - 1]} ${a}${k === lista_[0] ? ' (trwa)' : ''}`; };
+  const wybor = `<div class="chips tyg-wybor">${lista_.map((k) => `<button class="chip chip-mala${k === m ? ' on' : ''}" data-miesiac-wybor="${k}">${esc(nazwa(k))}</button>`).join('')}</div>`;
+  const wyniki = ids.map((id) => [id, ocenaOkresu(od, doD, id)]).filter(([, o]) => o);
+  // tygodnie miesiąca: średnia ocen dni w każdym tygodniu, żeby było widać trend
+  const tygodnie = (id) => {
+    const out = [];
+    for (let pn = plusDni(od, -((parseYmd(od).getDay() + 6) % 7)); pn <= doD; pn = plusDni(pn, 7)) {
+      const o = ocenaOkresu(pn < od ? od : pn, plusDni(pn, 6) > doD ? doD : plusDni(pn, 6), id);
+      if (o) out.push([pn, o.srednia]);
+    }
+    return out;
+  };
+  const tresc = wyniki.map(([id, o]) => {
+    const tyg = tygodnie(id);
+    return htmlOkres(o, id, ids.length > 1, nazwa(m)) + (tyg.length > 1 ? `<div class="ocena-tygodnie">Tygodnie: ${tyg.map(([pn, sr]) => `<span class="day-score ${kolorOceny(sr)}">od ${parseYmd(pn).getDate()}.${String(parseYmd(pn).getMonth() + 1).padStart(2, '0')} ${liczbaPL(sr)}</span>`).join(' ')}</div>` : '');
+  }).join('');
+  return `${wybor}<div class="card ocena-karta">${tresc || '<div class="empty">Brak zadań w tym miesiącu.</div>'}</div>
+    <p class="hint">Miesiąc z ocen zakończonych dni. Ocenę dnia liczy aplikacja: plan, pilne, ruch w transakcjach, praca z klientem, robota z doskoku i ile godzin zadań było wpisanych.</p>`;
+}
+function htmlMiesiacKarta(ids, gdzie) {
+  const zw = czyZwiniete(gdzie + ':miesiac', true);
+  return `<div class="grupa${zw ? ' zwinieta' : ''}"><button class="group-title zwin" data-zwin="${gdzie}:miesiac" data-domyslnie="1" aria-expanded="${!zw}"><span class="strzalka">${zw ? '▸' : '▾'}</span> 📅 Podsumowanie miesiąca</button>${zw ? '' : htmlMiesiac(ids)}</div>`;
 }
 
 // ---------- PANEL MENEDŻERA ----------
@@ -835,6 +1016,7 @@ function htmlPanel() {
   };
   return `
     ${htmlWyniki()}
+    ${sekcja('miesiac', 'Podsumowanie miesiąca · każda osoba', htmlMiesiac(osobyDoZadan().map((p) => p.id)))}
     ${sekcja('tydzien', 'Podsumowanie tygodnia · każda osoba', htmlTydzien([S.me.id].concat(ROLE_GRUPY.map(([r]) => aktywni().filter((p) => p.rola === r && p.id !== S.me.id).map((p) => p.id)).flat())))}
     ${sekcja('zespol', 'Zespół · kliknij osobę, żeby zobaczyć jej zadania', `<div class="people">${kartyOsob || '<div class="empty">Brak osób w zespole.</div>'}</div>
     <button class="link-btn" data-idz="settings">Zarządzaj zespołem: role, usuwanie osób</button>`)}
@@ -2299,6 +2481,10 @@ document.addEventListener('click', (e) => {
   }
   const tg = e.target.closest('[data-tydzien]');
   if (tg) { S.tydzien = tg.dataset.tydzien; odrysuj(); return; }
+  const dt_ = e.target.closest('[data-dzien-tab]');
+  if (dt_) { const [d, t] = dt_.dataset.dzienTab.split('|'); S.dzienTab[d] = t; odrysuj(); return; }
+  const mw = e.target.closest('[data-miesiac-wybor]');
+  if (mw) { S.miesiacOceny = mw.dataset.miesiacWybor; odrysuj(); return; }
   const zw = e.target.closest('[data-zwin]');
   if (zw) { przelaczGrupe(zw.dataset.zwin, zw.dataset.domyslnie === '1'); odrysuj(); return; }
   const g = e.target.closest('[data-gcal]');
@@ -2324,7 +2510,7 @@ document.addEventListener('click', (e) => {
   const kf = e.target.closest('[data-kfiltr]');
   if (kf) { S.filtrKredyt = kf.dataset.kfiltr; renderMain(); return; }
   const po = e.target.closest('[data-panel-osoba]');
-  if (po) { S.filtrOsoba = po.dataset.panelOsoba; ustawWidok('wszystkie'); return; }
+  if (po) { if (po.dataset.panelOsoba === S.me.id) { ustawWidok('moje'); return; } S.filtrOsoba = po.dataset.panelOsoba; ustawWidok('wszystkie'); return; }
   const w = e.target.closest('[data-widok]');
   if (w) { ustawWidok(w.dataset.widok); return; }
   const idz = e.target.closest('[data-idz="settings"]');
