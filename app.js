@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 37;
+const WERSJA = 38;
 
 // adres z linku z maila (zmiana hasła) zapamiętany, zanim Supabase go wyczyści
 const LINK_HASLA = location.hash + '&' + location.search;
@@ -61,10 +61,11 @@ const WIDOKI = {
   panel: 'Panel', moje: 'Moje', wszystkie: 'Wszystkie', listy: 'Listy', cykliczne: 'Cykliczne', gantt: 'Gantt', kredyty: 'Kredyty', zrobione: 'Zrobione'
 };
 const ZAKLADKI = {
-  admin: ['panel', 'moje', 'wszystkie', 'listy', 'cykliczne', 'gantt', 'kredyty', 'zrobione'],
-  asystentka: ['moje', 'cykliczne', 'gantt', 'zrobione'],
+  // Gantt wyłączony dla wszystkich od v38 (08.11.2026, decyzja Rafała); kod htmlGantt zostaje, przywrócenie = dopisać 'gantt' do list
+  admin: ['panel', 'moje', 'wszystkie', 'listy', 'cykliczne', 'kredyty', 'zrobione'],
+  asystentka: ['moje', 'cykliczne', 'zrobione'],
   doradca: ['kredyty'],
-  agent: ['moje', 'cykliczne', 'gantt', 'kredyty', 'zrobione']
+  agent: ['moje', 'cykliczne', 'kredyty', 'zrobione']
 };
 const IKONY_LIST = ['📋', '🎬', '💰', '📄', '🏠', '📞', '🛠️', '⭐', '🧾', '📸'];
 const KOLORY = ['#094d47', '#2563eb', '#c2410c', '#7c3aed', '#be185d', '#0891b2', '#65a30d', '#b45309'];
