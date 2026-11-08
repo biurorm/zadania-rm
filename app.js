@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 39;
+const WERSJA = 40;
 
 // adres z linku z maila (zmiana hasła) zapamiętany, zanim Supabase go wyczyści
 const LINK_HASLA = location.hash + '&' + location.search;
@@ -595,7 +595,8 @@ function renderSzybko() {
   if (!ludzie.some((p) => p.id === S.qKto)) S.qKto = S.me.id;
   if (S.qKiedy === undefined) S.qKiedy = 'dzis';
   const kiedy = [['dzis', 'Dziś'], ['jutro', 'Jutro'], ['', 'Bez terminu']];
-  $('#q-opcje').innerHTML = (ludzie.length > 1 ? `<div class="chips chips-scroll q-kto">${ludzie.map((p) =>
+  // w Moich bez wyboru osoby (zadanie zawsze dla mnie), przekazanie innym we Wszystkich (od v40)
+  $('#q-opcje').innerHTML = (ludzie.length > 1 && S.widok !== 'moje' ? `<div class="chips chips-scroll q-kto">${ludzie.map((p) =>
     `<button type="button" class="chip${S.qKto === p.id ? ' on' : ''}" data-q-kto="${esc(p.id)}">${avatar(p.id, true)} ${esc(imieJa(p))}</button>`).join('')}</div>` : '')
     + `<div class="q-kiedy">${kiedy.map(([k, n]) => `<button type="button" class="pill${S.qKiedy === k ? ' on' : ''}" data-q-kiedy="${k}">${n}</button>`).join('')}</div>`;
 }
@@ -605,7 +606,7 @@ async function dodajSzybko() {
   if (!t) return;
   pole.value = '';
   if (!('ontouchstart' in window)) pole.focus();
-  const kto = S.qKto || S.me.id;
+  const kto = S.widok === 'moje' ? S.me.id : (S.qKto || S.me.id);
   const termin = S.qKiedy === 'dzis' ? dzis() : S.qKiedy === 'jutro' ? plusDni(dzis(), 1) : null;
   const teraz = new Date().toISOString();
   const z = { id: uuid(), tytul: t, typ: 'zadanie', przypisany: kto, priorytet: 3, oferta: '', opis: '', status: 'otwarte', utworzyl: S.me.id, lista_id: null, termin, kalendarz: false, w_kalendarzu: false, kolejnosc: Date.now(), utworzono: teraz, zmieniono: teraz };
@@ -677,8 +678,8 @@ function renderGrupy(zadania, pusto) {
   const reszta = [];
   zadania.forEach((z) => {
     const l = z.lista_id && lista(z.lista_id);
-    // w Moich zrobione nie wracają pod listy (od v39, są w zakładce Zrobione)
-    if (z.status === 'zrobione') { if (l && S.widok !== 'moje') (odhaczone[l.id] = odhaczone[l.id] || []).push(z); }
+    // zrobione nie wracają pod listy ani w Moich, ani we Wszystkich (od v40, są w zakładce Zrobione)
+    if (z.status === 'zrobione') return;
     else if (l && !z.termin) (naListach[l.id] = naListach[l.id] || []).push(z);
     else reszta.push(z);
   });
@@ -1771,7 +1772,12 @@ function htmlCykliczne() {
   const kolejnosc = ['Każdego dnia'].concat(DNI, ['Co miesiąc i rzadziej']);
   const grupy = kolejnosc.map((g) => [g, lista_.filter((z) => grupa(z) === g)]).filter(([, l]) => l.length);
   const tytul = (g) => (DNI.includes(g) ? g[0].toUpperCase() + g.slice(1) : g);
-  return `${grupy.map(([g, l]) => `<div class="group-title">${esc(tytul(g))} · ${l.length}</div>${l.map(wiersz).join('')}`).join('')
+  // każdy dzień w osobnym panelu z kolorem, dzisiejszy dzień tygodnia wyróżniony
+  const KOLOR = { 'Każdego dnia': '#094d47', 'poniedziałek': '#2563eb', 'wtorek': '#7c3aed', 'środa': '#c2410c', 'czwartek': '#0891b2', 'piątek': '#be185d', 'sobota': '#65a30d', 'niedziela': '#b45309', 'Co miesiąc i rzadziej': '#57534e' };
+  const dzisTyg = dzienTyg(t);
+  return `${grupy.map(([g, l]) => `<section class="cyk-dzien${g === dzisTyg ? ' cyk-dzis' : ''}" style="--akc:${KOLOR[g] || '#094d47'}">
+      <div class="cyk-naglowek"><span class="cyk-nazwa">${esc(tytul(g))}</span>${g === dzisTyg ? '<span class="cyk-dzis-tag">dziś</span>' : ''}<span class="cyk-ile">${l.length}</span></div>
+      ${l.map(wiersz).join('')}</section>`).join('')
     || '<div class="empty">Brak zadań cyklicznych. Dodaj pierwsze przyciskiem +.</div>'}
     <p class="hint">Zadanie cykliczne pokazuje się w Moje dopiero w swoim dniu, wcześniej czeka tutaj. Po odhaczeniu samo ustawia następny termin. Dzień tygodnia bierze się z pierwszej daty, np. poniedziałek = co poniedziałek. Żeby zakończyć cykl, otwórz zadanie i ustaw „Nie powtarzaj” albo je usuń.</p>`;
 }
