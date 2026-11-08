@@ -651,3 +651,8 @@ a.link { color: var(--brand); text-decoration: underline; word-break: break-all;
 .ocena-dzien-chip b { font-size: 15px; }
 .ocena-tygodnie { margin: 6px 0 0; font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .day-score.ocena { font-weight: 700; }
+
+/* v42: zadania cykliczne w listach jednym kolorem (fiolet), niezależnie od priorytetu */
+.task.cykl { border-left-color: #7c3aed; background: #f5f0ff; border-color: #e4d8fb; }
+.task.cykl.zalegle { border-left-color: #7c3aed; }
+.task.cykl .check { border-color: #7c3aed; }

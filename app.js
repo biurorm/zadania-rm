@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 41;
+const WERSJA = 42;
 
 // adres z linku z maila (zmiana hasła) zapamiętany, zanim Supabase go wyczyści
 const LINK_HASLA = location.hash + '&' + location.search;
@@ -527,7 +527,7 @@ function karta(z, opcje = {}) {
   const zrobione = z.status === 'zrobione';
   const zalegle = !zrobione && z.termin && z.termin < t;
   const p = z.priorytet || 3;
-  const kl = ['task', 'p' + p, zalegle ? 'zalegle' : '', z.status === 'w_toku' ? 'wtoku' : '', zrobione ? 'zrobione' : ''].join(' ');
+  const kl = ['task', 'p' + p, zalegle ? 'zalegle' : '', z.status === 'w_toku' ? 'wtoku' : '', zrobione ? 'zrobione' : '', z.powtarzanie && !zrobione ? 'cykl' : ''].join(' ');
   const meta = [];
   if (opcje.zrobione) meta.push(`<span>✔ ${esc(osoba(z.zrobione_przez).imie)}, ${esc(kiedyTs(z.zrobione_kiedy))}</span>`);
   else if (!opcje.bezDaty && (z.termin || z.godzina)) meta.push(`<span class="task-when">${esc(nazwaDnia(z.termin))}${z.godzina ? ' ' + esc(hhmm(z.godzina)) : ''}</span>`);
