@@ -4,7 +4,7 @@
 'use strict';
 
 // numer wersji widoczny w zielonym pasku; podbijać razem z app.js?v= w index.html i CACHE w sw.js
-const WERSJA = 42;
+const WERSJA = 43;
 
 // adres z linku z maila (zmiana hasła) zapamiętany, zanim Supabase go wyczyści
 const LINK_HASLA = location.hash + '&' + location.search;
@@ -2153,9 +2153,10 @@ function htmlZalaczniki(z) {
         ${(a.typ || '').startsWith('image/') ? `<img data-zal-img="${esc(a.sciezka)}" alt="${esc(a.nazwa)}">` : '<span class="zal-pdf">📄</span>'}
         <small>${a.skan ? 'skan · ' : ''}${esc(a.nazwa)}</small>
         ${a.kto === S.me.id || jestemAdminem() ? `<button class="zal-x" data-zal-usun="${i}" aria-label="Usuń załącznik">✕</button>` : ''}
-      </div>`).join('')}</div>` : '<p class="hint">Dodaj zdjęcie z telefonu, zeskanuj dokument aparatem albo dołącz PDF.</p>'}
+      </div>`).join('')}</div>` : '<p class="hint">Zrób zdjęcie, wybierz kilka z galerii, zeskanuj dokument albo dołącz PDF.</p>'}
     <div class="zal-przyciski">
-      <label class="btn-ghost">📷 Zdjęcie<input type="file" accept="image/*" capture="environment" data-zal-dodaj="foto" hidden></label>
+      <label class="btn-ghost">📷 Aparat<input type="file" accept="image/*" capture="environment" data-zal-dodaj="foto" hidden></label>
+      <label class="btn-ghost">🖼️ Z galerii<input type="file" accept="image/*" multiple data-zal-dodaj="galeria" hidden></label>
       <label class="btn-ghost">📄 Skan dokumentu<input type="file" accept="image/*" capture="environment" data-zal-dodaj="skan" hidden></label>
       <label class="btn-ghost">📎 Plik / PDF<input type="file" accept="image/*,application/pdf" multiple data-zal-dodaj="plik" hidden></label>
     </div></div>`;
@@ -2194,9 +2195,10 @@ async function przygotujPlik(plik, skan) {
 async function dodajZalaczniki(zid, pliki, skan) {
   const z = S.zadania.find((x) => x.id === zid);
   if (!z) return;
-  let ok = 0;
+  let ok = 0, nr = 0;
   for (const f of pliki) {
-    toast(`Wysyłam ${f.name || 'zdjęcie'}…`);
+    nr++;
+    toast(pliki.length > 1 ? `Wysyłam ${nr} z ${pliki.length}…` : `Wysyłam ${f.name || 'zdjęcie'}…`);
     try {
       const p = await przygotujPlik(f, skan);
       if (p.blob.size > 10 * 1024 * 1024) { toast(`${p.nazwa}: ponad 10 MB, za duży`); continue; }
@@ -2296,6 +2298,8 @@ function otworzFormularz(z, preset = {}) {
   $('#f-kalendarz').checked = f.kalendarz;
   $('#f-oferta').value = f.oferta;
   $('#f-opis').value = f.opis;
+  S.formPliki = [];
+  rysujFormZdjecia();
   rysujFormChipy();
   wejdz('form');
   if (!z) setTimeout(() => $('#f-tytul').focus(), 50);
@@ -2346,6 +2350,25 @@ $('#task-form').addEventListener('click', (e) => {
   else if (b.dataset.oferta) { $('#f-oferta').value = b.dataset.oferta; }
 });
 $('#f-termin').addEventListener('change', rysujFormChipy);
+// zdjęcia w formularzu: czekają w pamięci i wysyłają się po zapisaniu zadania
+function rysujFormZdjecia() {
+  (S.formPodglady || []).forEach((u) => URL.revokeObjectURL(u));
+  S.formPodglady = (S.formPliki || []).map((f) => URL.createObjectURL(f));
+  const n = S.formPliki.length;
+  $('#f-zdjecia').innerHTML = n ? `<div class="zal-grid">${S.formPliki.map((f, i) => `<div class="zal">
+      <img src="${S.formPodglady[i]}" alt="${esc(f.name || 'zdjęcie')}"><small>${esc(f.name || 'zdjęcie')}</small>
+      <button type="button" class="zal-x" data-f-zdjecie-usun="${i}" aria-label="Usuń zdjęcie">✕</button></div>`).join('')}</div>
+      <p class="hint">${n === 1 ? '1 zdjęcie wyśle się' : `${n} ${[2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'zdjęcia wyślą' : 'zdjęć wyśle'} się`} po zapisaniu zadania.</p>` : '';
+}
+$('#f-zdjecia').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-f-zdjecie-usun]');
+  if (!b) return;
+  S.formPliki.splice(Number(b.dataset.fZdjecieUsun), 1);
+  rysujFormZdjecia();
+});
+document.querySelectorAll('[data-f-zdjecia]').forEach((inp) => {
+  inp.onchange = () => { S.formPliki = (S.formPliki || []).concat([...inp.files]); inp.value = ''; rysujFormZdjecia(); };
+});
 $('#f-anuluj').addEventListener('click', cofnij);
 $('#task-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -2403,9 +2426,15 @@ $('#task-form').addEventListener('submit', async (e) => {
     if (niewidoczne) { if (i >= 0) S.zadania.splice(i, 1); } // zlecone menedżerowi znika z widoku zlecającego
     else if (i >= 0) S.zadania[i] = zapisane; else S.zadania.push(zapisane);
     toast(stare ? 'Zapisane' : (z.przypisany === S.me.id ? 'Dodane' : `Zlecone: ${osoba(z.przypisany).imie}`));
+    const pliki = S.formPliki || [];
+    S.formPliki = [];
     wpisyZadania = { id: null, lista: [] };
     cofnij();
     odswiez();
+    if (pliki.length) {
+      if (niewidoczne) toast('Zdjęć nie dodano: zadanie menedżera jest dla Ciebie niewidoczne');
+      else dodajZalaczniki(zapisane.id, pliki, false).then(odswiez);
+    }
   } catch (err) {
     toast('Nie zapisano: ' + err.message);
   }
